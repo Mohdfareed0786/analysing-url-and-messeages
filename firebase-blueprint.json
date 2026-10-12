@@ -1,0 +1,353 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Public user profile metadata without raw PII.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Firebase Auth UID of the user.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Display name of the analyst.",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "organization": {
+          "type": "string",
+          "description": "Security team or organization name.",
+          "minLength": 0,
+          "maxLength": 120
+        },
+        "jobTitle": {
+          "type": "string",
+          "description": "Job title of the user.",
+          "minLength": 0,
+          "maxLength": 100
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of profile creation."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of last profile update."
+        }
+      },
+      "required": ["uid", "displayName", "createdAt", "updatedAt"]
+    },
+    "UserPrivateInfo": {
+      "title": "UserPrivateInfo",
+      "description": "Isolated PII document for user email and phone.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Firebase Auth UID of the user.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "User email address.",
+          "minLength": 0,
+          "maxLength": 254
+        },
+        "phoneNumber": {
+          "type": "string",
+          "description": "User phone number if authenticated via Phone OTP.",
+          "minLength": 0,
+          "maxLength": 32
+        },
+        "authProvider": {
+          "type": "string",
+          "description": "Primary authentication provider identifier.",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of update."
+        }
+      },
+      "required": ["uid", "authProvider", "updatedAt"]
+    },
+    "ScanRecord": {
+      "title": "ScanRecord",
+      "description": "Immutable security scan record belonging to an authenticated user.",
+      "type": "object",
+      "properties": {
+        "scanId": {
+          "type": "string",
+          "description": "Unique scan identifier.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "userId": {
+          "type": "string",
+          "description": "Owner Firebase Auth UID.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "scanType": {
+          "type": "string",
+          "description": "Type of security scan executed.",
+          "enum": ["url", "message", "ip", "screenshot"]
+        },
+        "target": {
+          "type": "string",
+          "description": "Target URL, message excerpt, screenshot filename, or IP address.",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "riskScore": {
+          "type": "integer",
+          "description": "Evidence-based risk score from 0 to 100."
+        },
+        "verdict": {
+          "type": "string",
+          "description": "Calculated risk classification verdict.",
+          "enum": [
+            "Clean",
+            "Low Risk",
+            "Suspicious",
+            "High Risk",
+            "Malicious",
+            "LOW RISK",
+            "MEDIUM RISK",
+            "HIGH RISK",
+            "CRITICAL RISK"
+          ]
+        },
+        "summary": {
+          "type": "string",
+          "description": "Executive summary of the analysis.",
+          "minLength": 1,
+          "maxLength": 4000
+        },
+        "analysisData": {
+          "type": "object",
+          "description": "Structured evidence and telemetry map from the scan."
+        },
+        "status": {
+          "type": "string",
+          "description": "Terminal status of the scan.",
+          "enum": ["completed"]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when the scan was recorded."
+        }
+      },
+      "required": [
+        "scanId",
+        "userId",
+        "scanType",
+        "target",
+        "riskScore",
+        "verdict",
+        "summary",
+        "analysisData",
+        "status",
+        "createdAt"
+      ]
+    },
+    "SecurityReport": {
+      "title": "SecurityReport",
+      "description": "Formal security assessment report generated from a scan.",
+      "type": "object",
+      "properties": {
+        "reportId": {
+          "type": "string",
+          "description": "Unique report identifier.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "userId": {
+          "type": "string",
+          "description": "Owner Firebase Auth UID.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "scanId": {
+          "type": "string",
+          "description": "Associated scan record ID.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "title": {
+          "type": "string",
+          "description": "Report title.",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "scanType": {
+          "type": "string",
+          "description": "Type of scan.",
+          "enum": ["url", "message", "ip", "screenshot"]
+        },
+        "target": {
+          "type": "string",
+          "description": "Inspected target.",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "riskScore": {
+          "type": "integer",
+          "description": "Risk score 0-100."
+        },
+        "verdict": {
+          "type": "string",
+          "description": "Verdict classification.",
+          "enum": [
+            "Clean",
+            "Low Risk",
+            "Suspicious",
+            "High Risk",
+            "Malicious",
+            "LOW RISK",
+            "MEDIUM RISK",
+            "HIGH RISK",
+            "CRITICAL RISK"
+          ]
+        },
+        "analystNotes": {
+          "type": "string",
+          "description": "Custom analyst annotations and incident notes.",
+          "minLength": 0,
+          "maxLength": 5000
+        },
+        "status": {
+          "type": "string",
+          "description": "Report lifecycle status.",
+          "enum": ["active", "archived"]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of creation."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of last update."
+        }
+      },
+      "required": [
+        "reportId",
+        "userId",
+        "scanId",
+        "title",
+        "scanType",
+        "target",
+        "riskScore",
+        "verdict",
+        "analystNotes",
+        "status",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "ChatSession": {
+      "title": "ChatSession",
+      "description": "Multi-turn SOC AI Assistant conversation session owned by an authenticated user.",
+      "type": "object",
+      "properties": {
+        "chatId": {
+          "type": "string",
+          "description": "Unique chat session ID.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "userId": {
+          "type": "string",
+          "description": "Owner Firebase Auth UID.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "title": {
+          "type": "string",
+          "description": "Conversation title.",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "rolePersona": {
+          "type": "string",
+          "description": "Selected SOC AI persona.",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "modelName": {
+          "type": "string",
+          "description": "Selected Gemini model identifier.",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "messages": {
+          "type": "array",
+          "description": "Bounded list of chat messages (max 50 messages)."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of creation."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of last update."
+        }
+      },
+      "required": [
+        "chatId",
+        "userId",
+        "title",
+        "rolePersona",
+        "modelName",
+        "messages",
+        "createdAt",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "User profile document owned strictly by {userId}."
+    },
+    "/users/{userId}/private/{docId}": {
+      "schema": { "$ref": "#/entities/UserPrivateInfo" },
+      "description": "Split collection isolating user PII (email, phone)."
+    },
+    "/scans/{scanId}": {
+      "schema": { "$ref": "#/entities/ScanRecord" },
+      "description": "Immutable security scan results accessible only to the owning user."
+    },
+    "/reports/{reportId}": {
+      "schema": { "$ref": "#/entities/SecurityReport" },
+      "description": "Saved security incident reports accessible only to the owning user."
+    },
+    "/chats/{chatId}": {
+      "schema": { "$ref": "#/entities/ChatSession" },
+      "description": "Persistent multi-turn AI chat threads accessible only to the owning user."
+    }
+  }
+}

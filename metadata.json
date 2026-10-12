@@ -1,0 +1,6 @@
+{
+  "name": "Phishing Shield",
+  "description": "Detect. Analyze. Protect. Enterprise cybersecurity platform for real-time URL, domain, DNS, RDAP, public IP reputation, and NLP message phishing analysis.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,284 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 1. Global Safety Net: Default-deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Reusable Hardened Global Helpers
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && (
+        request.auth.token.email_verified == true ||
+        request.auth.token.firebase.sign_in_provider == 'password' ||
+        request.auth.token.firebase.sign_in_provider == 'phone'
+      );
+    }
+
+    // Entity Validation Blueprints
+    function isValidUserProfile(data) {
+      return data.keys().hasAll(['uid', 'displayName', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'displayName', 'organization', 'jobTitle', 'createdAt', 'updatedAt'])
+        && data.uid == request.auth.uid
+        && isValidId(data.uid)
+        && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 100
+        && (!('organization' in data) || (data.organization is string && data.organization.size() <= 120))
+        && (!('jobTitle' in data) || (data.jobTitle is string && data.jobTitle.size() <= 100))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidUserPrivateInfo(data) {
+      return data.keys().hasAll(['uid', 'authProvider', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'email', 'phoneNumber', 'authProvider', 'updatedAt'])
+        && data.uid == request.auth.uid
+        && isValidId(data.uid)
+        && (!('email' in data) || (data.email is string && data.email.size() <= 254))
+        && (!('phoneNumber' in data) || (data.phoneNumber is string && data.phoneNumber.size() <= 32))
+        && data.authProvider is string && data.authProvider.size() >= 1 && data.authProvider.size() <= 64
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidScanRecord(data) {
+      return data.keys().hasAll([
+          'scanId', 'userId', 'scanType', 'target', 'riskScore',
+          'verdict', 'summary', 'analysisData', 'status', 'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'scanId', 'userId', 'scanType', 'target', 'riskScore',
+          'verdict', 'summary', 'analysisData', 'status', 'createdAt'
+        ])
+        && isValidId(data.scanId)
+        && data.userId == request.auth.uid
+        && isValidId(data.userId)
+        && data.scanType is string && data.scanType in ['url', 'message', 'ip']
+        && data.target is string && data.target.size() >= 1 && data.target.size() <= 2048
+        && data.riskScore is int && data.riskScore >= 0 && data.riskScore <= 100
+        && data.verdict is string && data.verdict in ['Clean', 'Low Risk', 'Suspicious', 'High Risk', 'Malicious']
+        && data.summary is string && data.summary.size() >= 1 && data.summary.size() <= 4000
+        && data.analysisData is map && data.analysisData.keys().size() <= 50
+        && data.status is string && data.status == 'completed'
+        && data.createdAt is timestamp;
+    }
+
+    function isValidSecurityReport(data) {
+      return data.keys().hasAll([
+          'reportId', 'userId', 'scanId', 'title', 'scanType', 'target',
+          'riskScore', 'verdict', 'analystNotes', 'status', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'reportId', 'userId', 'scanId', 'title', 'scanType', 'target',
+          'riskScore', 'verdict', 'analystNotes', 'status', 'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.reportId)
+        && data.userId == request.auth.uid
+        && isValidId(data.userId)
+        && isValidId(data.scanId)
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 200
+        && data.scanType is string && data.scanType in ['url', 'message', 'ip']
+        && data.target is string && data.target.size() >= 1 && data.target.size() <= 2048
+        && data.riskScore is int && data.riskScore >= 0 && data.riskScore <= 100
+        && data.verdict is string && data.verdict in ['Clean', 'Low Risk', 'Suspicious', 'High Risk', 'Malicious']
+        && data.analystNotes is string && data.analystNotes.size() <= 5000
+        && data.status is string && data.status in ['active', 'archived']
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidChatSession(data) {
+      return data.keys().hasAll([
+          'chatId', 'userId', 'title', 'rolePersona', 'modelName',
+          'messages', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'chatId', 'userId', 'title', 'rolePersona', 'modelName',
+          'messages', 'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.chatId)
+        && data.userId == request.auth.uid
+        && isValidId(data.userId)
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 200
+        && data.rolePersona is string && data.rolePersona.size() >= 1 && data.rolePersona.size() <= 100
+        && data.modelName is string && data.modelName.size() >= 1 && data.modelName.size() <= 100
+        && data.messages is list && data.messages.size() <= 50
+        && (data.messages.size() == 0 || data.messages[0] is map)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    // Collection: /users/{userId}
+    match /users/{userId} {
+      allow get: if isSignedIn() && isValidId(userId) && request.auth.uid == userId;
+      allow list: if false;
+
+      allow create: if isVerifiedUser()
+        && isValidId(userId)
+        && request.auth.uid == userId
+        && isValidUserProfile(incoming())
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if isVerifiedUser()
+        && isValidId(userId)
+        && request.auth.uid == userId
+        && isValidUserProfile(incoming())
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'organization', 'jobTitle', 'updatedAt'])
+        );
+
+      allow delete: if false;
+
+      // Split Sub-collection: /users/{userId}/private/{docId} for PII Isolation
+      match /private/{docId} {
+        allow get: if isSignedIn()
+          && isValidId(userId)
+          && isValidId(docId)
+          && request.auth.uid == userId
+          && get(/databases/$(database)/documents/users/$(userId)).data.uid == request.auth.uid;
+
+        allow list: if false;
+
+        allow create: if isVerifiedUser()
+          && isValidId(userId)
+          && isValidId(docId)
+          && docId == 'info'
+          && request.auth.uid == userId
+          && isValidUserPrivateInfo(incoming())
+          && incoming().updatedAt == request.time
+          && exists(/databases/$(database)/documents/users/$(userId));
+
+        allow update: if isVerifiedUser()
+          && isValidId(userId)
+          && isValidId(docId)
+          && docId == 'info'
+          && request.auth.uid == userId
+          && isValidUserPrivateInfo(incoming())
+          && incoming().uid == existing().uid
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly(['email', 'phoneNumber', 'authProvider', 'updatedAt'])
+          && get(/databases/$(database)/documents/users/$(userId)).data.uid == request.auth.uid;
+
+        allow delete: if false;
+      }
+    }
+
+    // Collection: /scans/{scanId}
+    match /scans/{scanId} {
+      allow get: if isSignedIn()
+        && isValidId(scanId)
+        && existing().userId == request.auth.uid;
+
+      allow list: if isSignedIn()
+        && existing().userId == request.auth.uid;
+
+      allow create: if isVerifiedUser()
+        && isValidId(scanId)
+        && isValidScanRecord(incoming())
+        && incoming().scanId == scanId
+        && incoming().createdAt == request.time;
+
+      // Scans are immutable audit records once completed
+      allow update: if false;
+
+      allow delete: if isVerifiedUser()
+        && isValidId(scanId)
+        && existing().userId == request.auth.uid;
+    }
+
+    // Collection: /reports/{reportId}
+    match /reports/{reportId} {
+      allow get: if isSignedIn()
+        && isValidId(reportId)
+        && existing().userId == request.auth.uid;
+
+      allow list: if isSignedIn()
+        && existing().userId == request.auth.uid;
+
+      allow create: if isVerifiedUser()
+        && isValidId(reportId)
+        && isValidSecurityReport(incoming())
+        && incoming().reportId == reportId
+        && incoming().status == 'active'
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && exists(/databases/$(database)/documents/scans/$(incoming().scanId))
+        && get(/databases/$(database)/documents/scans/$(incoming().scanId)).data.userId == request.auth.uid;
+
+      allow update: if isVerifiedUser()
+        && isValidId(reportId)
+        && isValidSecurityReport(incoming())
+        && existing().userId == request.auth.uid
+        && existing().status != 'archived'
+        && incoming().reportId == existing().reportId
+        && incoming().userId == existing().userId
+        && incoming().scanId == existing().scanId
+        && incoming().scanType == existing().scanType
+        && incoming().target == existing().target
+        && incoming().riskScore == existing().riskScore
+        && incoming().verdict == existing().verdict
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          // Action 1: Update title or analystNotes
+          incoming().diff(existing()).affectedKeys().hasOnly(['title', 'analystNotes', 'updatedAt']) ||
+          // Action 2: Archive report (Terminal State transition)
+          (incoming().status == 'archived' && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt']))
+        );
+
+      allow delete: if isVerifiedUser()
+        && isValidId(reportId)
+        && existing().userId == request.auth.uid;
+    }
+
+    // Collection: /chats/{chatId}
+    match /chats/{chatId} {
+      allow get: if isSignedIn()
+        && isValidId(chatId)
+        && existing().userId == request.auth.uid;
+
+      allow list: if isSignedIn()
+        && existing().userId == request.auth.uid;
+
+      allow create: if isVerifiedUser()
+        && isValidId(chatId)
+        && isValidChatSession(incoming())
+        && incoming().chatId == chatId
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if isVerifiedUser()
+        && isValidId(chatId)
+        && isValidChatSession(incoming())
+        && existing().userId == request.auth.uid
+        && incoming().chatId == existing().chatId
+        && incoming().userId == existing().userId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['title', 'rolePersona', 'modelName', 'messages', 'updatedAt']);
+
+      allow delete: if isVerifiedUser()
+        && isValidId(chatId)
+        && existing().userId == request.auth.uid;
+    }
+  }
+}
