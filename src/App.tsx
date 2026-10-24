@@ -19,6 +19,7 @@ import {
 } from 'firebase/firestore';
 import {
   Shield,
+  Calendar,
   Globe,
   MessageSquareWarning,
   Network,
@@ -41,6 +42,17 @@ import {
   Volume2,
   ExternalLink,
   Maximize2,
+  Radio,
+  Mic,
+  MicOff,
+  Upload,
+  Box,
+  LayoutDashboard,
+  QrCode,
+  Image as ImageIcon,
+  GraduationCap,
+  BarChart3,
+  Settings,
 } from 'lucide-react';
 import {
   auth,
@@ -62,24 +74,46 @@ import {
   SecurityReportDoc,
   ChatSessionDoc,
   ChatTurnItem,
+  AllowedScanType,
+  AllowedVerdictType,
 } from './lib/firebase';
 import { AuthGate } from './components/AuthGate';
 import { ScanResultView } from './components/ScanResultView';
 import { AiSecuritySuite } from './components/AiSecuritySuite';
+import { ScanHistoryHeatmap, type RiskCategoryFilter } from './components/ScanHistoryHeatmap';
+import { ScanRiskTrendsChart } from './components/ScanRiskTrendsChart';
+import { LiveVoiceAssistant } from './components/LiveVoiceAssistant';
+import { CyberMatrix3D } from './components/CyberMatrix3D';
+import { DashboardOverview } from './components/DashboardOverview';
+import { ScreenshotScannerWorkspace } from './components/ScreenshotScannerWorkspace';
+import { QrScannerWorkspace } from './components/QrScannerWorkspace';
+import { DomainIntelWorkspace } from './components/DomainIntelWorkspace';
+import { SecurityAwarenessWorkspace } from './components/SecurityAwarenessWorkspace';
+import { SecurityAnalyticsWorkspace } from './components/SecurityAnalyticsWorkspace';
+import { SecuritySettingsWorkspace } from './components/SecuritySettingsWorkspace';
 
 type ActiveSection =
+  | 'dashboard-overview'
   | 'url-scanner'
   | 'message-scanner'
+  | 'screenshot-scanner'
+  | 'qr-scanner'
   | 'ip-scanner'
-  | 'ai-assistant'
+  | 'domain-intel'
   | 'scan-history'
   | 'security-reports'
-  | 'user-profile';
+  | 'security-awareness'
+  | 'security-analytics'
+  | 'ai-assistant'
+  | 'cyber-matrix-3d'
+  | 'live-voice'
+  | 'user-profile'
+  | 'security-settings';
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [authReady, setAuthReady] = useState(false);
-  const [activeSection, setActiveSection] = useState<ActiveSection>('url-scanner');
+  const [activeSection, setActiveSection] = useState<ActiveSection>('dashboard-overview');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   // Firestore real-time state
@@ -111,6 +145,10 @@ export default function App() {
     target: string;
     data: Record<string, any>;
   } | null>(null);
+  const [msgAudioRecording, setMsgAudioRecording] = useState(false);
+  const [msgTranscribing, setMsgTranscribing] = useState(false);
+  const msgMediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const msgAudioChunksRef = useRef<Blob[]>([]);
 
   // IP Scanner State
   const [ipInput, setIpInput] = useState('');
@@ -125,6 +163,8 @@ export default function App() {
   // History Inspection & Filter State
   const [historyFilter, setHistoryFilter] = useState<'all' | 'url' | 'message' | 'ip'>('all');
   const [historySearch, setHistorySearch] = useState('');
+  const [historyDateFilter, setHistoryDateFilter] = useState<string | null>(null);
+  const [historyRiskCategory, setHistoryRiskCategory] = useState<RiskCategoryFilter>('all');
   const [selectedHistoryScan, setSelectedHistoryScan] = useState<ScanRecordDoc | null>(null);
 
   // Reports State
@@ -145,6 +185,10 @@ export default function App() {
   // Dedicated AI Suite Initial Prompt (when jumping to full AI Studio)
   const [suiteInitialPrompt, setSuiteInitialPrompt] = useState<string | null>(null);
 
+  // Gemini Live Voice Quick Triage Modal State
+  const [voiceModalOpen, setVoiceModalOpen] = useState(true);
+  const [voiceInitialTopic, setVoiceInitialTopic] = useState<string | null>(null);
+
   // Slide-Over Quick Gemini AI Assistant Drawer State
   const [copilotDrawerOpen, setCopilotDrawerOpen] = useState(false);
   const [drawerMessages, setDrawerMessages] = useState<ChatTurnItem[]>([]);
@@ -153,8 +197,8 @@ export default function App() {
   const [drawerError, setDrawerError] = useState<string | null>(null);
   const [drawerChatId, setDrawerChatId] = useState<string | undefined>(undefined);
   const [drawerModel, setDrawerModel] = useState<
-    'gemini-3.1-flash-lite' | 'gemini-3.8-flash' | 'gemini-3.1-pro-preview'
-  >('gemini-3.1-flash-lite');
+    'gemini-3.1-flash-lite' | 'gemini-3.8-flash' | 'gemini-4-argon' | 'gemini-3.1-pro-preview'
+  >('gemini-3.8-flash');
   const [drawerTtsIdx, setDrawerTtsIdx] = useState<number | null>(null);
   const drawerScrollRef = useRef<HTMLDivElement | null>(null);
   const drawerAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -275,23 +319,78 @@ export default function App() {
     };
   }, [authReady, user]);
 
-  // Authenticated Fetch Helper
+  // Authenticated Fetch Helper with Safe Content-Type & Error Handling
   const authenticatedFetch = async (endpoint: string, options: RequestInit = {}) => {
     if (!user) throw new Error('User is not authenticated.');
     const token = await user.getIdToken();
-    const res = await fetch(endpoint, {
-      ...options,
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-        ...(options.headers || {}),
-      },
-    });
-    const json = await res.json();
-    if (!res.ok) {
-      throw new Error(json.error || `Request failed with HTTP ${res.status}`);
+
+    let res: Response;
+    try {
+      res = await fetch(endpoint, {
+        ...options,
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+          ...(options.headers || {}),
+        },
+      });
+    } catch (fetchErr: unknown) {
+      console.error(`Network fetch failed for ${endpoint}:`, fetchErr);
+      throw new Error(
+        'Failed to connect to the backend server. Please verify network connectivity.'
+      );
     }
-    return json;
+
+    const contentType = res.headers.get('content-type') || '';
+    const isJson = contentType.toLowerCase().includes('application/json');
+
+    if (!res.ok) {
+      if (isJson) {
+        let errorData: any = null;
+        try {
+          errorData = await res.json();
+        } catch (jsonErr) {
+          console.error(`Failed to parse error JSON from ${endpoint}:`, jsonErr);
+        }
+        const errorMsg =
+          typeof errorData?.error === 'string'
+            ? errorData.error
+            : errorData?.error?.message ||
+              errorData?.message ||
+              `Request failed with HTTP status ${res.status}`;
+        throw new Error(errorMsg);
+      } else {
+        // Unexpected non-JSON (e.g., HTML 502/504 error page from reverse proxy or 404 HTML fallback)
+        const rawBody = await res.text().catch(() => '');
+        console.error(
+          `Unexpected non-JSON response from ${endpoint} (HTTP ${res.status}, Content-Type: ${contentType}):`,
+          rawBody.slice(0, 500)
+        );
+        throw new Error(
+          'The analysis service returned an unexpected response.\nPlease check the API endpoint and backend logs.'
+        );
+      }
+    }
+
+    if (!isJson) {
+      const rawBody = await res.text().catch(() => '');
+      console.error(
+        `Expected JSON but received non-JSON from ${endpoint} (HTTP ${res.status}, Content-Type: ${contentType}):`,
+        rawBody.slice(0, 500)
+      );
+      throw new Error(
+        'The analysis service returned an unexpected response.\nPlease check the API endpoint and backend logs.'
+      );
+    }
+
+    try {
+      return await res.json();
+    } catch (parseErr: unknown) {
+      console.error(`Failed to parse successful JSON response from ${endpoint}:`, parseErr);
+      throw new Error(
+        'The analysis service returned an unexpected response.\nPlease check the API endpoint and backend logs.'
+      );
+    }
   };
 
   // Active scan context for the Slide-Over Gemini Copilot Drawer
@@ -479,6 +578,87 @@ export default function App() {
     }
   };
 
+  // Audio Transcription Handlers for Message Scanner (gemini-3.5-transcribe)
+  const handleStartMessageAudioRecord = async () => {
+    setMsgError(null);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      msgAudioChunksRef.current = [];
+      const recorder = new MediaRecorder(stream);
+      msgMediaRecorderRef.current = recorder;
+
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) msgAudioChunksRef.current.push(e.data);
+      };
+
+      recorder.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop());
+        const blob = new Blob(msgAudioChunksRef.current, {
+          type: recorder.mimeType || 'audio/webm',
+        });
+        await handleTranscribeMessageBlob(blob, recorder.mimeType || 'audio/webm');
+      };
+
+      recorder.start();
+      setMsgAudioRecording(true);
+    } catch (err: unknown) {
+      setMsgError(
+        err instanceof Error ? err.message : 'Unable to access microphone for recording.'
+      );
+    }
+  };
+
+  const handleStopMessageAudioRecord = () => {
+    if (msgMediaRecorderRef.current && msgAudioRecording) {
+      msgMediaRecorderRef.current.stop();
+      setMsgAudioRecording(false);
+    }
+  };
+
+  const handleTranscribeMessageBlob = async (blob: Blob, mimeType: string) => {
+    setMsgTranscribing(true);
+    setMsgError(null);
+    try {
+      const reader = new FileReader();
+      const base64Promise = new Promise<string>((resolve, reject) => {
+        reader.onloadend = () => resolve(String(reader.result || ''));
+        reader.onerror = reject;
+      });
+      reader.readAsDataURL(blob);
+      const base64Data = await base64Promise;
+
+      const res = await authenticatedFetch('/api/transcribe', {
+        method: 'POST',
+        body: JSON.stringify({
+          audioBase64: base64Data,
+          mimeType,
+          customPrompt:
+            'Transcribe this suspicious voicemail or voice note for cybersecurity and phishing analysis. Preserve all URLs, phone numbers, and urgent requests.',
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error?.message || data.error || 'Transcription failed.');
+      }
+      if (data.transcript) {
+        setMsgInput((prev) => (prev ? `${prev}\n\n${data.transcript}` : data.transcript));
+      }
+    } catch (err: unknown) {
+      setMsgError(
+        err instanceof Error ? err.message : 'Audio transcription with gemini-3.5-transcribe failed.'
+      );
+    } finally {
+      setMsgTranscribing(false);
+    }
+  };
+
+  const handleMessageAudioFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    await handleTranscribeMessageBlob(file, file.type || 'audio/webm');
+    e.target.value = '';
+  };
+
   // Handler: Execute Message Scan
   const handleRunMessageScan = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -579,10 +759,10 @@ export default function App() {
   // Handler: Create Security Report from Scan
   const handleCreateReport = async (params: {
     scanId: string;
-    scanType: 'url' | 'message' | 'ip';
+    scanType: AllowedScanType;
     target: string;
     riskScore: number;
-    verdict: 'Clean' | 'Low Risk' | 'Suspicious' | 'High Risk' | 'Malicious';
+    verdict: AllowedVerdictType;
     defaultNotes: string;
   }) => {
     if (!user) return;
@@ -602,6 +782,20 @@ export default function App() {
   const filteredScans = useMemo(() => {
     return scans.filter((s) => {
       if (historyFilter !== 'all' && s.scanType !== historyFilter) return false;
+      if (historyDateFilter) {
+        let scanDateStr = '';
+        if (s.createdAt?.toDate) {
+          scanDateStr = s.createdAt.toDate().toISOString().slice(0, 10);
+        } else if (s.createdAt) {
+          scanDateStr = new Date(s.createdAt as any).toISOString().slice(0, 10);
+        }
+        if (scanDateStr !== historyDateFilter) return false;
+      }
+      if (historyRiskCategory !== 'all') {
+        if (historyRiskCategory === 'high' && s.riskScore < 50) return false;
+        if (historyRiskCategory === 'medium' && (s.riskScore < 25 || s.riskScore >= 50)) return false;
+        if (historyRiskCategory === 'low' && s.riskScore >= 25) return false;
+      }
       if (historySearch.trim()) {
         const q = historySearch.toLowerCase();
         return (
@@ -612,7 +806,7 @@ export default function App() {
       }
       return true;
     });
-  }, [scans, historyFilter, historySearch]);
+  }, [scans, historyFilter, historySearch, historyDateFilter, historyRiskCategory]);
 
   // Filtered Security Reports
   const filteredReports = useMemo(() => {
@@ -705,7 +899,7 @@ ${rep.analystNotes || 'No additional analyst notes recorded.'}
 
   if (!authReady) {
     return (
-      <div className="min-h-screen bg-white text-slate-700 flex items-center justify-center font-mono text-sm">
+      <div className="min-h-screen bg-[#030712] text-slate-300 flex items-center justify-center font-mono text-sm">
         Initializing Phishing Shield Security Session...
       </div>
     );
@@ -716,19 +910,13 @@ ${rep.analystNotes || 'No additional analyst notes recorded.'}
   }
 
   const navItems: { id: ActiveSection; label: string; icon: React.ReactNode; count?: number }[] = [
-    { id: 'url-scanner', label: 'URL & Domain Scanner', icon: <Globe className="w-4 h-4" /> },
-    {
-      id: 'message-scanner',
-      label: 'Message NLP Scanner',
-      icon: <MessageSquareWarning className="w-4 h-4" />,
-    },
-    { id: 'ip-scanner', label: 'Public IP Scanner', icon: <Network className="w-4 h-4" /> },
-    {
-      id: 'ai-assistant',
-      label: 'Gemini AI Assistant',
-      icon: <Sparkles className="w-4 h-4" />,
-      count: chatSessions.length,
-    },
+    { id: 'dashboard-overview', label: 'Dashboard Overview', icon: <LayoutDashboard className="w-4 h-4" /> },
+    { id: 'url-scanner', label: 'Scan URL', icon: <Globe className="w-4 h-4" /> },
+    { id: 'message-scanner', label: 'Scan Message', icon: <MessageSquareWarning className="w-4 h-4" /> },
+    { id: 'screenshot-scanner', label: 'Scan Screenshot', icon: <ImageIcon className="w-4 h-4" /> },
+    { id: 'qr-scanner', label: 'Scan QR Code', icon: <QrCode className="w-4 h-4" /> },
+    { id: 'ip-scanner', label: 'Scan Public IP', icon: <Network className="w-4 h-4" /> },
+    { id: 'domain-intel', label: 'Domain Intelligence', icon: <Globe className="w-4 h-4 text-sky-600" /> },
     {
       id: 'scan-history',
       label: 'Scan History',
@@ -741,50 +929,78 @@ ${rep.analystNotes || 'No additional analyst notes recorded.'}
       icon: <FileText className="w-4 h-4" />,
       count: reports.length,
     },
-    { id: 'user-profile', label: 'Analyst Profile', icon: <UserCheck className="w-4 h-4" /> },
+    { id: 'security-awareness', label: 'Security Awareness', icon: <GraduationCap className="w-4 h-4" /> },
+    { id: 'security-analytics', label: 'Security Analytics', icon: <BarChart3 className="w-4 h-4" /> },
+    {
+      id: 'ai-assistant',
+      label: 'AI Security Assistant',
+      icon: <Sparkles className="w-4 h-4 text-emerald-600" />,
+      count: chatSessions.length,
+    },
+    {
+      id: 'cyber-matrix-3d',
+      label: '3D Threat Matrix',
+      icon: <Box className="w-4 h-4 text-indigo-600" />,
+    },
+    {
+      id: 'live-voice',
+      label: 'Live Voice Copilot',
+      icon: <Radio className="w-4 h-4 text-emerald-600" />,
+    },
+    { id: 'user-profile', label: 'Profile', icon: <UserCheck className="w-4 h-4" /> },
+    { id: 'security-settings', label: 'Security Settings', icon: <Settings className="w-4 h-4" /> },
   ];
 
   const sectionTitleMap: Record<ActiveSection, string> = {
+    'dashboard-overview': 'SOC Command & Threat Overview',
     'url-scanner': 'URL, Domain, DNS & RDAP Scanner',
     'message-scanner': 'Message, Email & SMS NLP Scanner',
+    'screenshot-scanner': 'Screenshot OCR & Vision Phishing Inspector',
+    'qr-scanner': 'QR Code Quishing & Payload Decoder',
     'ip-scanner': 'Public IP Reputation & DNSBL Scanner',
-    'ai-assistant': 'Gemini AI Security Assistant & SOC Studio',
-    'scan-history': 'Authenticated Scan History',
+    'domain-intel': 'Domain Intelligence & Authoritative RDAP Registry',
+    'scan-history': 'Authenticated Threat Scan Vault',
     'security-reports': 'Incident & Security Reports',
+    'security-awareness': 'Security Awareness & Anti-Scam Training',
+    'security-analytics': 'Empirical Threat Telemetry & Risk Analytics',
+    'ai-assistant': 'Gemini AI Security Assistant & Multi-Modal SOC Studio',
+    'cyber-matrix-3d': '3D Cyber Defense Aegis Matrix & Spatial Threat Radar',
+    'live-voice': 'Gemini 3.8 Live Voice Security Copilot',
     'user-profile': 'Analyst Profile & Session Security',
+    'security-settings': 'System Health, 12-Subsystem Status & Settings',
   };
 
   const highRiskCount = scans.filter((s) => s.riskScore >= 50).length;
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 flex">
+    <div className="min-h-screen bg-[#030712] text-slate-100 flex">
       {/* Sidebar Navigation (264px Desktop) */}
       <aside
-        className={`fixed inset-y-0 left-0 z-40 w-[264px] bg-white border-r border-slate-200 flex flex-col transition-transform duration-200 lg:static lg:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-40 w-[264px] bg-[#070d19] border-r border-slate-800 flex flex-col transition-transform duration-200 lg:static lg:translate-x-0 ${
           mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
-        <div className="px-6 py-5 border-b border-slate-200 flex items-center justify-between">
+        <div className="px-6 py-5 border-b border-slate-800 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <Shield className="w-5 h-5 text-emerald-600 shrink-0" />
-            <span className="text-base font-bold tracking-tight text-slate-900 font-display">
+            <Shield className="w-5 h-5 text-emerald-400 shrink-0" />
+            <span className="text-base font-bold tracking-tight text-white font-display">
               Phishing Shield
             </span>
           </div>
           <button
             type="button"
             onClick={() => setMobileMenuOpen(false)}
-            className="lg:hidden text-slate-500 hover:text-slate-900 cursor-pointer"
+            className="lg:hidden text-slate-400 hover:text-white cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        <div className="px-6 py-3 border-b border-slate-200 text-[11px] font-mono text-slate-500">
+        <div className="px-6 py-2.5 border-b border-slate-800 text-[11px] font-mono text-slate-400 tracking-wide">
           Detect. Analyze. Protect.
         </div>
 
-        <nav className="flex-1 p-3 space-y-1">
+        <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
           {navItems.map((item) => {
             const active = activeSection === item.id;
             return (
@@ -795,10 +1011,10 @@ ${rep.analystNotes || 'No additional analyst notes recorded.'}
                   setActiveSection(item.id);
                   setMobileMenuOpen(false);
                 }}
-                className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-md text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
+                className={`w-full flex items-center justify-between px-3.5 py-2 rounded-md text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
                   active
-                    ? 'bg-emerald-50 text-emerald-800 border border-emerald-200 font-semibold'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 border border-transparent'
+                    ? 'bg-blue-600/15 text-blue-400 border border-blue-500/30 font-semibold'
+                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 border border-transparent'
                 }`}
               >
                 <span className="flex items-center gap-3">
@@ -816,19 +1032,19 @@ ${rep.analystNotes || 'No additional analyst notes recorded.'}
         </nav>
 
         {/* Analyst Session Summary & Logout */}
-        <div className="p-4 border-t border-slate-200 space-y-3 bg-slate-50/70">
+        <div className="p-4 border-t border-slate-800 space-y-3 bg-[#050914]">
           <div className="text-xs space-y-0.5">
-            <p className="font-semibold text-slate-900 truncate">
+            <p className="font-semibold text-white truncate">
               {profile?.displayName || user.displayName || 'Security Analyst'}
             </p>
-            <p className="text-slate-500 font-mono text-[11px] truncate">
+            <p className="text-slate-400 font-mono text-[11px] truncate">
               {privateInfo?.email || user.email || user.phoneNumber || user.uid.slice(0, 12)}
             </p>
           </div>
           <button
             type="button"
             onClick={() => signOut(auth)}
-            className="w-full py-2 px-3 text-xs font-medium text-slate-700 hover:text-slate-900 bg-white hover:bg-slate-100 border border-slate-200 rounded-md transition-colors flex items-center justify-center gap-2 cursor-pointer whitespace-nowrap"
+            className="w-full py-2 px-3 text-xs font-medium text-slate-300 hover:text-white bg-slate-900 hover:bg-slate-800 border border-slate-700 rounded-md transition-colors flex items-center justify-center gap-2 cursor-pointer whitespace-nowrap"
           >
             <LogOut className="w-3.5 h-3.5" />
             <span>Sign Out Session</span>
@@ -839,50 +1055,77 @@ ${rep.analystNotes || 'No additional analyst notes recorded.'}
       {/* Main Content Viewport */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Top Bar Contract: Breadcrumb Trail on Left, Summary Metrics & Actions on Right */}
-        <header className="px-6 lg:px-8 py-4 border-b border-slate-200 bg-white/95 sticky top-0 z-20 flex items-center justify-between gap-4">
+        <header className="px-6 lg:px-8 py-3.5 border-b border-slate-800 bg-[#070d19]/90 backdrop-blur-md sticky top-0 z-20 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3 min-w-0">
             <button
               type="button"
               onClick={() => setMobileMenuOpen(true)}
-              className="lg:hidden text-slate-600 hover:text-slate-900 cursor-pointer"
+              className="lg:hidden text-slate-400 hover:text-white cursor-pointer"
             >
               <Menu className="w-5 h-5" />
             </button>
-            <div className="flex items-center gap-2 text-xs sm:text-sm text-slate-500 truncate">
+            <div className="flex items-center gap-2 text-xs sm:text-sm text-slate-400 truncate">
               <span className="font-medium text-slate-500">Workspace</span>
               <span aria-hidden="true">/</span>
-              <span className="font-semibold text-slate-900 truncate">
+              <span className="font-semibold text-white truncate">
                 {sectionTitleMap[activeSection]}
               </span>
             </div>
           </div>
 
           <div className="flex items-center gap-4 shrink-0 text-xs">
-            <div className="hidden md:flex items-center gap-3 text-slate-600 font-mono tabular-nums">
+            <div className="hidden md:flex items-center gap-3 text-slate-400 font-mono tabular-nums">
               <span>Scans: {scans.length}</span>
-              <span aria-hidden="true">·</span>
-              <span>High Risk: {highRiskCount}</span>
-              <span aria-hidden="true">·</span>
-              <span>Reports: {reports.length}</span>
+              <span aria-hidden="true" className="text-slate-700">·</span>
+              <span className="text-red-400">High Risk: {highRiskCount}</span>
+              <span aria-hidden="true" className="text-slate-700">·</span>
+              <span className="text-indigo-400">Reports: {reports.length}</span>
             </div>
 
             {scans.length > 0 && (
               <button
                 type="button"
                 onClick={handleExportHistoryCsv}
-                className="hidden sm:flex px-3 py-1.5 text-xs font-medium text-slate-700 bg-white hover:bg-slate-100 border border-slate-200 rounded-md transition-colors items-center gap-1.5 whitespace-nowrap cursor-pointer"
+                className="hidden sm:flex px-3 py-1.5 text-xs font-medium text-slate-300 bg-slate-900 hover:bg-slate-800 border border-slate-700 rounded-md transition-colors items-center gap-1.5 whitespace-nowrap cursor-pointer"
               >
-                <Download className="w-3.5 h-3.5" />
+                <Download className="w-3.5 h-3.5 text-slate-400" />
                 <span>Export CSV</span>
               </button>
             )}
 
             <button
               type="button"
-              onClick={() => setCopilotDrawerOpen(true)}
-              className="px-3.5 py-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-md transition-colors flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
+              onClick={() => setActiveSection('cyber-matrix-3d')}
+              className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors flex items-center gap-1.5 whitespace-nowrap cursor-pointer shadow-2xs ${
+                activeSection === 'cyber-matrix-3d'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700'
+              }`}
+              title="Launch 3D Cyber Threat Matrix (Three.js PBR)"
             >
-              <Sparkles className="w-3.5 h-3.5" />
+              <Box className="w-3.5 h-3.5 text-blue-400" />
+              <span>3D Matrix</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setVoiceInitialTopic(null);
+                setVoiceModalOpen(true);
+              }}
+              className="px-3.5 py-1.5 text-xs font-semibold text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 rounded-md transition-colors flex items-center gap-1.5 whitespace-nowrap cursor-pointer shadow-2xs"
+              title="Launch hands-free real-time conversation with Gemini 3.8 Live"
+            >
+              <Radio className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
+              <span>Live Voice</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setCopilotDrawerOpen(true)}
+              className="px-3.5 py-1.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-500 rounded-md transition-colors flex items-center gap-1.5 whitespace-nowrap cursor-pointer shadow-sm"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-blue-200" />
               <span>Gemini AI Assistant</span>
             </button>
           </div>
@@ -891,16 +1134,29 @@ ${rep.analystNotes || 'No additional analyst notes recorded.'}
         {/* Active Workspace Body */}
         <main className="flex-1 max-w-[1320px] w-full mx-auto px-6 lg:px-8 py-8 space-y-8">
           {/* ================================================================= */}
+          {/* 0. DASHBOARD OVERVIEW WORKSPACE                                   */}
+          {/* ================================================================= */}
+          {activeSection === 'dashboard-overview' && (
+            <DashboardOverview
+              scans={scans}
+              reportsCount={reports.length}
+              onNavigate={(sec) => setActiveSection(sec)}
+              onSelectScan={(scan) => setSelectedHistoryScan(scan)}
+              onLaunchVoice={() => setVoiceModalOpen(true)}
+            />
+          )}
+
+          {/* ================================================================= */}
           {/* 1. URL & DOMAIN SCANNER WORKSPACE                                 */}
           {/* ================================================================= */}
           {activeSection === 'url-scanner' && (
             <div className="space-y-8">
-              <div className="bg-white border border-slate-200 rounded-lg p-6 space-y-5">
+              <div className="bg-[#0b1325] border border-slate-800/80 rounded-xl p-6 space-y-5 shadow-sm">
                 <div className="space-y-1">
-                  <h2 className="text-xl font-bold text-slate-900 font-display">
+                  <h2 className="text-xl font-bold text-white font-display">
                     Live URL, Domain, DNS & RDAP Inspection
                   </h2>
-                  <p className="text-xs text-slate-600">
+                  <p className="text-xs text-slate-400">
                     Analyzes URL syntax, IDN homographs, live DNS records (A/AAAA/MX/NS/SPF/DMARC),
                     authoritative RDAP domain registration age, TLS X.509 certificates, HTTP
                     redirects, and resolved Public IP DNSBL reputation.
@@ -909,20 +1165,20 @@ ${rep.analystNotes || 'No additional analyst notes recorded.'}
 
                 <form onSubmit={(e) => handleRunUrlScan(e)} className="flex flex-col sm:flex-row gap-3">
                   <div className="flex-1 relative">
-                    <Globe className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
+                    <Globe className="w-4 h-4 text-slate-500 absolute left-3.5 top-3" />
                     <input
                       type="text"
                       required
                       value={urlInput}
                       onChange={(e) => setUrlInput(e.target.value)}
                       placeholder="Enter URL to inspect (e.g., https://example.com/login)"
-                      className="w-full pl-10 pr-4 py-2.5 text-sm font-mono bg-slate-50 border border-slate-300 rounded-md text-slate-900 placeholder-slate-400 focus:outline-none focus:border-emerald-600"
+                      className="w-full pl-10 pr-4 py-2.5 text-sm font-mono bg-slate-900 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
                     />
                   </div>
                   <button
                     type="submit"
                     disabled={urlScanning}
-                    className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-semibold text-sm rounded-md transition-colors flex items-center justify-center gap-2 whitespace-nowrap cursor-pointer"
+                    className="px-6 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-semibold text-sm rounded-lg transition-colors flex items-center justify-center gap-2 whitespace-nowrap cursor-pointer shadow-sm"
                   >
                     <Search className="w-4 h-4" />
                     <span>{urlScanning ? 'Running Live Telemetry...' : 'Analyze URL'}</span>
@@ -931,7 +1187,7 @@ ${rep.analystNotes || 'No additional analyst notes recorded.'}
 
                 {/* Quick Real-World Target Presets */}
                 <div className="flex flex-wrap items-center gap-2 pt-1 text-xs">
-                  <span className="text-slate-500">Quick Live Targets:</span>
+                  <span className="text-slate-400">Quick Live Targets:</span>
                   {[
                     { label: 'google.com (Established HTTPS)', url: 'https://www.google.com' },
                     { label: 'github.com (SPF/DMARC + TLS)', url: 'https://github.com/login' },
@@ -946,7 +1202,7 @@ ${rep.analystNotes || 'No additional analyst notes recorded.'}
                       type="button"
                       disabled={urlScanning}
                       onClick={() => handleRunUrlScan(undefined, preset.url)}
-                      className="px-2.5 py-1 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 rounded text-[11px] font-mono transition-colors cursor-pointer whitespace-nowrap"
+                      className="px-2.5 py-1 bg-slate-900/90 hover:bg-slate-800 text-slate-300 border border-slate-700 rounded text-[11px] font-mono transition-colors cursor-pointer whitespace-nowrap"
                     >
                       {preset.label}
                     </button>
@@ -954,20 +1210,20 @@ ${rep.analystNotes || 'No additional analyst notes recorded.'}
                 </div>
 
                 {urlError && (
-                  <div className="p-3.5 rounded-md bg-red-50 border border-red-200 text-xs text-red-700 flex items-center gap-2.5">
-                    <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
+                  <div className="p-3.5 rounded-lg bg-red-500/10 border border-red-500/30 text-xs text-red-400 flex items-center gap-2.5">
+                    <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
                     <span>{urlError}</span>
                   </div>
                 )}
               </div>
 
               {urlScanning && (
-                <div className="bg-white border border-slate-200 rounded-lg p-8 text-center space-y-3">
-                  <RefreshCw className="w-6 h-6 text-emerald-600 animate-spin mx-auto" />
-                  <p className="text-sm font-medium text-slate-900">
+                <div className="bg-[#0b1325] border border-slate-800 rounded-xl p-8 text-center space-y-3">
+                  <RefreshCw className="w-6 h-6 text-blue-500 animate-spin mx-auto" />
+                  <p className="text-sm font-medium text-white">
                     Executing Live DNS Resolution, RDAP Lookup, TLS Handshake & DNSBL Checks...
                   </p>
-                  <p className="text-xs text-slate-500 font-mono">
+                  <p className="text-xs text-slate-400 font-mono">
                     Target: {urlInput}
                   </p>
                 </div>
@@ -978,9 +1234,14 @@ ${rep.analystNotes || 'No additional analyst notes recorded.'}
                   scanType="url"
                   target={urlResult.target}
                   scanId={urlResult.scanId}
+                  scanStatus="Live"
                   data={urlResult.data}
                   onCreateReport={handleCreateReport}
                   onAskGeminiAboutScan={handleAskGeminiAboutScan}
+                  onStartVoiceTriage={(topic) => {
+                    setVoiceInitialTopic(topic);
+                    setVoiceModalOpen(true);
+                  }}
                 />
               )}
             </div>
@@ -991,12 +1252,12 @@ ${rep.analystNotes || 'No additional analyst notes recorded.'}
           {/* ================================================================= */}
           {activeSection === 'message-scanner' && (
             <div className="space-y-8">
-              <div className="bg-white border border-slate-200 rounded-lg p-6 space-y-5">
+              <div className="bg-[#0b1325] border border-slate-800/80 rounded-xl p-6 space-y-5 shadow-sm">
                 <div className="space-y-1">
-                  <h2 className="text-xl font-bold text-slate-900 font-display">
+                  <h2 className="text-xl font-bold text-white font-display">
                     NLP Message, Email & SMS Phishing Scanner
                   </h2>
-                  <p className="text-xs text-slate-600">
+                  <p className="text-xs text-slate-400">
                     Detects psychological coercion, urgency triggers, credential/OTP harvesting,
                     financial diversion lures, SPF/DKIM/DMARC header anomalies, and automatically
                     executes a live URL/DNS/RDAP scan on embedded links.
@@ -1006,7 +1267,7 @@ ${rep.analystNotes || 'No additional analyst notes recorded.'}
                 <form onSubmit={handleRunMessageScan} className="space-y-4">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-1.5">
-                      <label className="block text-xs font-medium text-slate-700">
+                      <label className="block text-xs font-medium text-slate-300">
                         Declared Sender Address / Display Name (Optional)
                       </label>
                       <input
@@ -1014,11 +1275,11 @@ ${rep.analystNotes || 'No additional analyst notes recorded.'}
                         value={msgSender}
                         onChange={(e) => setMsgSender(e.target.value)}
                         placeholder='e.g., "Microsoft Security Team" <alert-help88@gmail.com>'
-                        className="w-full px-3.5 py-2 text-xs font-mono bg-slate-50 border border-slate-300 rounded-md text-slate-900 placeholder-slate-400 focus:outline-none focus:border-emerald-600"
+                        className="w-full px-3.5 py-2 text-xs font-mono bg-slate-900 border border-slate-700 rounded-md text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
                       />
                     </div>
                     <div className="space-y-1.5">
-                      <label className="block text-xs font-medium text-slate-700">
+                      <label className="block text-xs font-medium text-slate-300">
                         Raw Email Authentication Headers (Optional SPF / DKIM / DMARC)
                       </label>
                       <input
@@ -1026,28 +1287,65 @@ ${rep.analystNotes || 'No additional analyst notes recorded.'}
                         value={msgHeaders}
                         onChange={(e) => setMsgHeaders(e.target.value)}
                         placeholder="e.g., Authentication-Results: mx.google.com; spf=fail; dkim=none; dmarc=fail"
-                        className="w-full px-3.5 py-2 text-xs font-mono bg-slate-50 border border-slate-300 rounded-md text-slate-900 placeholder-slate-400 focus:outline-none focus:border-emerald-600"
+                        className="w-full px-3.5 py-2 text-xs font-mono bg-slate-900 border border-slate-700 rounded-md text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
                       />
                     </div>
                   </div>
 
                   <div className="space-y-1.5">
-                    <label className="block text-xs font-medium text-slate-700">
-                      Message Body (Email, SMS, or Instant Message Content)
-                    </label>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <label className="block text-xs font-medium text-slate-300">
+                        Message Body (Email, SMS, or Instant Message Content)
+                      </label>
+                      <div className="flex items-center gap-2">
+                        {!msgAudioRecording ? (
+                          <button
+                            type="button"
+                            disabled={msgTranscribing}
+                            onClick={handleStartMessageAudioRecord}
+                            className="px-2.5 py-1 text-[11px] font-medium text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 rounded flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                            title="Record audio to transcribe with gemini-3.5-transcribe"
+                          >
+                            <Mic className="w-3 h-3 text-emerald-400" />
+                            <span>{msgTranscribing ? 'Transcribing...' : 'Dictate (gemini-3.5-transcribe)'}</span>
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={handleStopMessageAudioRecord}
+                            className="px-2.5 py-1 text-[11px] font-semibold text-white bg-red-600 hover:bg-red-700 rounded flex items-center gap-1.5 cursor-pointer animate-pulse"
+                            title="Stop recording and transcribe"
+                          >
+                            <MicOff className="w-3 h-3" />
+                            <span>Stop & Transcribe</span>
+                          </button>
+                        )}
+
+                        <label className="px-2.5 py-1 text-[11px] font-medium text-slate-300 bg-slate-900 hover:bg-slate-800 border border-slate-700 rounded flex items-center gap-1.5 cursor-pointer">
+                          <Upload className="w-3 h-3 text-slate-400" />
+                          <span>Audio File</span>
+                          <input
+                            type="file"
+                            accept="audio/*"
+                            onChange={handleMessageAudioFileUpload}
+                            className="hidden"
+                          />
+                        </label>
+                      </div>
+                    </div>
                     <textarea
                       rows={5}
                       required
                       value={msgInput}
                       onChange={(e) => setMsgInput(e.target.value)}
                       placeholder="Paste suspicious email text, SMS notification, or chat message here..."
-                      className="w-full p-3.5 text-sm bg-slate-50 border border-slate-300 rounded-md text-slate-900 placeholder-slate-400 focus:outline-none focus:border-emerald-600"
+                      className="w-full p-3.5 text-sm bg-slate-900 border border-slate-700 rounded-md text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
                     />
                   </div>
 
                   <div className="flex flex-wrap items-center justify-between gap-4">
                     <div className="flex flex-wrap items-center gap-2 text-xs">
-                      <span className="text-slate-500">Load Sample:</span>
+                      <span className="text-slate-400">Load Sample:</span>
                       <button
                         type="button"
                         onClick={() => {
@@ -1059,7 +1357,7 @@ ${rep.analystNotes || 'No additional analyst notes recorded.'}
                             'URGENT NOTICE: Dear Valued Customer, your account has been suspended due to unauthorized login activity. Immediate action is required within 24 hours to verify your password and 6-digit verification code at http://neverssl.com or your account will be permanently closed.'
                           );
                         }}
-                        className="px-2.5 py-1 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 rounded text-[11px] font-mono cursor-pointer whitespace-nowrap"
+                        className="px-2.5 py-1 bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700 rounded text-[11px] font-mono cursor-pointer whitespace-nowrap"
                       >
                         Credential Phish + Header Fail
                       </button>
@@ -1074,7 +1372,7 @@ ${rep.analystNotes || 'No additional analyst notes recorded.'}
                             'Hi team, the scheduled quarterly infrastructure maintenance for https://github.com has been completed on time. No action is required from engineering.'
                           );
                         }}
-                        className="px-2.5 py-1 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 rounded text-[11px] font-mono cursor-pointer whitespace-nowrap"
+                        className="px-2.5 py-1 bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700 rounded text-[11px] font-mono cursor-pointer whitespace-nowrap"
                       >
                         Legitimate Engineering Notice
                       </button>
@@ -1083,7 +1381,7 @@ ${rep.analystNotes || 'No additional analyst notes recorded.'}
                     <button
                       type="submit"
                       disabled={msgScanning}
-                      className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-semibold text-sm rounded-md transition-colors flex items-center gap-2 whitespace-nowrap cursor-pointer"
+                      className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-semibold text-sm rounded-md transition-colors flex items-center gap-2 whitespace-nowrap cursor-pointer shadow-sm"
                     >
                       <MessageSquareWarning className="w-4 h-4" />
                       <span>{msgScanning ? 'Analyzing NLP & Embedded Links...' : 'Analyze Message'}</span>
@@ -1092,17 +1390,17 @@ ${rep.analystNotes || 'No additional analyst notes recorded.'}
                 </form>
 
                 {msgError && (
-                  <div className="p-3.5 rounded-md bg-red-50 border border-red-200 text-xs text-red-700 flex items-center gap-2.5">
-                    <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
+                  <div className="p-3.5 rounded-md bg-red-500/10 border border-red-500/30 text-xs text-red-400 flex items-center gap-2.5">
+                    <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
                     <span>{msgError}</span>
                   </div>
                 )}
               </div>
 
               {msgScanning && (
-                <div className="bg-white border border-slate-200 rounded-lg p-8 text-center space-y-3">
-                  <RefreshCw className="w-6 h-6 text-emerald-600 animate-spin mx-auto" />
-                  <p className="text-sm font-medium text-slate-900">
+                <div className="bg-[#0b1325] border border-slate-800 rounded-lg p-8 text-center space-y-3">
+                  <RefreshCw className="w-6 h-6 text-emerald-400 animate-spin mx-auto" />
+                  <p className="text-sm font-medium text-white">
                     Running NLP Intent Classification, Header Verification & Embedded URL Deep Scan...
                   </p>
                 </div>
@@ -1113,12 +1411,87 @@ ${rep.analystNotes || 'No additional analyst notes recorded.'}
                   scanType="message"
                   target={msgResult.target}
                   scanId={msgResult.scanId}
+                  scanStatus="Live"
                   data={msgResult.data}
                   onCreateReport={handleCreateReport}
                   onAskGeminiAboutScan={handleAskGeminiAboutScan}
+                  onStartVoiceTriage={(topic) => {
+                    setVoiceInitialTopic(topic);
+                    setVoiceModalOpen(true);
+                  }}
                 />
               )}
             </div>
+          )}
+
+          {/* ================================================================= */}
+          {/* 2b. SCREENSHOT & VISION SCANNER WORKSPACE                         */}
+          {/* ================================================================= */}
+          {activeSection === 'screenshot-scanner' && (
+            <ScreenshotScannerWorkspace
+              onScanComplete={async (res) => {
+                if (user && res.data) {
+                  try {
+                    const summaryText =
+                      res.data.aiExplanation?.executiveSummary ||
+                      `Screenshot ${res.target} analyzed. Risk Score: ${res.data.riskScore}/100 (${res.data.verdict}).`;
+                    const scanId = await saveScanRecord({
+                      userId: user.uid,
+                      scanType: 'screenshot',
+                      target: res.target,
+                      riskScore: res.data.riskScore || 0,
+                      verdict: res.data.verdict || 'Clean',
+                      summary: summaryText,
+                      analysisData: res.data,
+                    });
+                    res.scanId = scanId;
+                  } catch (e) {
+                    console.error('Failed to save screenshot scan record:', e);
+                  }
+                }
+              }}
+              onCreateReport={handleCreateReport}
+              onAskGeminiAboutScan={handleAskGeminiAboutScan}
+              onStartVoiceTriage={(topic) => {
+                setVoiceInitialTopic(topic);
+                setVoiceModalOpen(true);
+              }}
+            />
+          )}
+
+          {/* ================================================================= */}
+          {/* 2c. QR CODE SECURITY SCANNER WORKSPACE (QUISHING DEFENSE)         */}
+          {/* ================================================================= */}
+          {activeSection === 'qr-scanner' && (
+            <QrScannerWorkspace
+              onScanComplete={async (res) => {
+                if (user && res.data) {
+                  try {
+                    const summaryText =
+                      res.data.aiExplanation?.executiveSummary ||
+                      `QR payload (${res.data.payloadType || 'text'}) analyzed. Risk Score: ${res.data.riskScore}/100 (${res.data.verdict}).`;
+                    const scanId = await saveScanRecord({
+                      userId: user.uid,
+                      scanType: 'qr',
+                      target: res.target,
+                      riskScore: res.data.riskScore || 0,
+                      verdict: res.data.verdict || 'Clean',
+                      summary: summaryText,
+                      analysisData: res.data,
+                    });
+                    res.scanId = scanId;
+                  } catch (e) {
+                    console.error('Failed to save QR scan record:', e);
+                  }
+                }
+              }}
+              onCreateReport={handleCreateReport}
+              onAskGeminiAboutScan={handleAskGeminiAboutScan}
+              onStartVoiceTriage={(topic) => {
+                setVoiceInitialTopic(topic);
+                setVoiceModalOpen(true);
+              }}
+            />
           )}
 
           {/* ================================================================= */}
@@ -1126,12 +1499,12 @@ ${rep.analystNotes || 'No additional analyst notes recorded.'}
           {/* ================================================================= */}
           {activeSection === 'ip-scanner' && (
             <div className="space-y-8">
-              <div className="bg-white border border-slate-200 rounded-lg p-6 space-y-5">
+              <div className="bg-[#0b1325] border border-slate-800 rounded-xl p-6 space-y-5 shadow-sm">
                 <div className="space-y-1">
-                  <h2 className="text-xl font-bold text-slate-900 font-display">
+                  <h2 className="text-xl font-bold text-white font-display">
                     Public IP Reputation, ASN, RDAP & DNSBL Scanner
                   </h2>
-                  <p className="text-xs text-slate-600">
+                  <p className="text-xs text-slate-400">
                     Performs RFC scope classification, Reverse DNS (PTR) lookup, ASN/ISP routing
                     resolution, RDAP Regional Internet Registry queries, and live multi-zone DNSBL
                     abuse checks.
@@ -1140,20 +1513,20 @@ ${rep.analystNotes || 'No additional analyst notes recorded.'}
 
                 <form onSubmit={(e) => handleRunIpScan(e)} className="flex flex-col sm:flex-row gap-3">
                   <div className="flex-1 relative">
-                    <Network className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
+                    <Network className="w-4 h-4 text-slate-500 absolute left-3.5 top-3" />
                     <input
                       type="text"
                       required
                       value={ipInput}
                       onChange={(e) => setIpInput(e.target.value)}
                       placeholder="Enter IPv4 or IPv6 address (e.g., 1.1.1.1 or 8.8.8.8)"
-                      className="w-full pl-10 pr-4 py-2.5 text-sm font-mono bg-slate-50 border border-slate-300 rounded-md text-slate-900 placeholder-slate-400 focus:outline-none focus:border-emerald-600 tabular-nums"
+                      className="w-full pl-10 pr-4 py-2.5 text-sm font-mono bg-slate-900 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 tabular-nums"
                     />
                   </div>
                   <button
                     type="submit"
                     disabled={ipScanning}
-                    className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-semibold text-sm rounded-md transition-colors flex items-center justify-center gap-2 whitespace-nowrap cursor-pointer"
+                    className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-semibold text-sm rounded-lg transition-colors flex items-center justify-center gap-2 whitespace-nowrap cursor-pointer shadow-sm"
                   >
                     <Search className="w-4 h-4" />
                     <span>{ipScanning ? 'Scanning IP...' : 'Analyze IP'}</span>
@@ -1162,14 +1535,14 @@ ${rep.analystNotes || 'No additional analyst notes recorded.'}
                     type="button"
                     disabled={ipScanning}
                     onClick={handleDetectAndScanMyIp}
-                    className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 font-medium text-xs rounded-md transition-colors whitespace-nowrap cursor-pointer"
+                    className="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700 font-medium text-xs rounded-lg transition-colors whitespace-nowrap cursor-pointer"
                   >
                     Scan My Public IP
                   </button>
                 </form>
 
                 <div className="flex flex-wrap items-center gap-2 pt-1 text-xs">
-                  <span className="text-slate-500">Sample Public IPs:</span>
+                  <span className="text-slate-400">Sample Public IPs:</span>
                   {[
                     { label: '1.1.1.1 (Cloudflare DNS)', ip: '1.1.1.1' },
                     { label: '8.8.8.8 (Google Public DNS)', ip: '8.8.8.8' },
@@ -1181,7 +1554,7 @@ ${rep.analystNotes || 'No additional analyst notes recorded.'}
                       type="button"
                       disabled={ipScanning}
                       onClick={() => handleRunIpScan(undefined, item.ip)}
-                      className="px-2.5 py-1 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 rounded text-[11px] font-mono transition-colors cursor-pointer whitespace-nowrap"
+                      className="px-2.5 py-1 bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700 rounded text-[11px] font-mono transition-colors cursor-pointer whitespace-nowrap"
                     >
                       {item.label}
                     </button>
@@ -1189,17 +1562,17 @@ ${rep.analystNotes || 'No additional analyst notes recorded.'}
                 </div>
 
                 {ipError && (
-                  <div className="p-3.5 rounded-md bg-red-50 border border-red-200 text-xs text-red-700 flex items-center gap-2.5">
-                    <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
+                  <div className="p-3.5 rounded-md bg-red-500/10 border border-red-500/30 text-xs text-red-400 flex items-center gap-2.5">
+                    <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
                     <span>{ipError}</span>
                   </div>
                 )}
               </div>
 
               {ipScanning && (
-                <div className="bg-white border border-slate-200 rounded-lg p-8 text-center space-y-3">
-                  <RefreshCw className="w-6 h-6 text-emerald-600 animate-spin mx-auto" />
-                  <p className="text-sm font-medium text-slate-900">
+                <div className="bg-[#0b1325] border border-slate-800 rounded-xl p-8 text-center space-y-3">
+                  <RefreshCw className="w-6 h-6 text-emerald-400 animate-spin mx-auto" />
+                  <p className="text-sm font-medium text-white">
                     Querying Reverse DNS (PTR), ASN Routing, RDAP Registry & 4 Live DNSBL Zones...
                   </p>
                 </div>
@@ -1210,11 +1583,104 @@ ${rep.analystNotes || 'No additional analyst notes recorded.'}
                   scanType="ip"
                   target={ipResult.target}
                   scanId={ipResult.scanId}
+                  scanStatus="Live"
                   data={ipResult.data}
                   onCreateReport={handleCreateReport}
                   onAskGeminiAboutScan={handleAskGeminiAboutScan}
+                  onStartVoiceTriage={(topic) => {
+                    setVoiceInitialTopic(topic);
+                    setVoiceModalOpen(true);
+                  }}
                 />
               )}
+            </div>
+          )}
+
+          {/* ================================================================= */}
+          {/* 3b. DOMAIN INTELLIGENCE WORKSPACE                                 */}
+          {/* ================================================================= */}
+          {activeSection === 'domain-intel' && (
+            <DomainIntelWorkspace
+              onScanComplete={async (res) => {
+                if (user && res.data) {
+                  try {
+                    const summaryText =
+                      res.data.aiExplanation?.executiveSummary ||
+                      `Domain ${res.target} analyzed. Risk Score: ${res.data.riskScore}/100 (${res.data.verdict}). Age: ${res.data.rdap?.domainAgeDays !== undefined && res.data.rdap?.domainAgeDays !== null ? `${res.data.rdap.domainAgeDays} days` : 'Unavailable'}.`;
+                    const scanId = await saveScanRecord({
+                      userId: user.uid,
+                      scanType: 'domain',
+                      target: res.target,
+                      riskScore: res.data.riskScore || 0,
+                      verdict: res.data.verdict || 'Clean',
+                      summary: summaryText,
+                      analysisData: res.data,
+                    });
+                    res.scanId = scanId;
+                  } catch (e) {
+                    console.error('Failed to save domain scan record:', e);
+                  }
+                }
+              }}
+              onCreateReport={handleCreateReport}
+              onAskGeminiAboutScan={handleAskGeminiAboutScan}
+              onStartVoiceTriage={(topic) => {
+                setVoiceInitialTopic(topic);
+                setVoiceModalOpen(true);
+              }}
+            />
+          )}
+
+          {/* ================================================================= */}
+          {/* 3c. THREE.JS 3D CYBER DEFENSE MATRIX & SPATIAL RADAR              */}
+          {/* ================================================================= */}
+          {activeSection === 'cyber-matrix-3d' && (
+            <div className="space-y-6">
+              <div className="bg-[#0b1325] border border-slate-800 rounded-xl p-6 space-y-2">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div className="space-y-1">
+                    <h2 className="text-xl font-bold text-white font-display">
+                      3D Cyber Defense Aegis Matrix & Threat Interceptor
+                    </h2>
+                    <p className="text-xs text-slate-400">
+                      Real-time Three.js spatial threat environment featuring a composite 12-part procedural shield core, RoomEnvironment PBR lighting, radar sweeps, and live threat telemetry dissipation.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-mono text-slate-400">
+                      {scans.length} Authenticated Scan{scans.length === 1 ? '' : 's'} Synchronized
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Three.js 3D Viewport with Collapsible Bottom Control Dock */}
+              <CyberMatrix3D
+                scans={scans}
+                recentScan={
+                  urlResult
+                    ? { target: urlResult.target, riskScore: urlResult.data.riskScore, verdict: urlResult.data.verdict, scanType: 'URL' }
+                    : msgResult
+                      ? { target: msgResult.target, riskScore: msgResult.data.riskScore, verdict: msgResult.data.verdict, scanType: 'Message' }
+                      : ipResult
+                        ? { target: ipResult.target, riskScore: ipResult.data.riskScore, verdict: ipResult.data.verdict, scanType: 'IP' }
+                        : null
+                }
+              />
+            </div>
+          )}
+
+          {/* ================================================================= */}
+          {/* 3b. LIVE VOICE ASSISTANT WORKSPACE (gemini-3.8-live)               */}
+          {/* ================================================================= */}
+          {activeSection === 'live-voice' && (
+            <div className="space-y-6">
+              <LiveVoiceAssistant
+                onSendTranscriptToMessageScanner={(transcript) => {
+                  setMsgInput(transcript);
+                  setActiveSection('message-scanner');
+                }}
+              />
             </div>
           )}
 
@@ -1241,13 +1707,31 @@ ${rep.analystNotes || 'No additional analyst notes recorded.'}
           {/* ================================================================= */}
           {activeSection === 'scan-history' && (
             <div className="space-y-6">
-              <div className="bg-white border border-slate-200 rounded-lg p-6 space-y-5">
+              {/* Recharts Line Chart: Temporal Risk Score Trends Over Time Filtered by Date Range */}
+              <ScanRiskTrendsChart
+                scans={scans}
+                selectedDate={historyDateFilter}
+                onSelectDate={setHistoryDateFilter}
+                onInspectScan={(scan) => setSelectedHistoryScan(scan)}
+              />
+
+              {/* D3 Heatmap Visualization of Temporal Risk Scores Categorized by Date */}
+              <ScanHistoryHeatmap
+                scans={scans}
+                selectedDate={historyDateFilter}
+                onSelectDate={setHistoryDateFilter}
+                onInspectScan={(scan) => setSelectedHistoryScan(scan)}
+                riskCategoryFilter={historyRiskCategory}
+                onRiskCategoryChange={setHistoryRiskCategory}
+              />
+
+              <div className="bg-[#0b1325] border border-slate-800 rounded-xl p-6 space-y-5 shadow-sm">
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                   <div>
-                    <h2 className="text-xl font-bold text-slate-900 font-display">
+                    <h2 className="text-xl font-bold text-white font-display">
                       Authenticated Scan Audit Ledger
                     </h2>
-                    <p className="text-xs text-slate-600">
+                    <p className="text-xs text-slate-400">
                       All scans are cryptographically bound to your UID ({user.uid.slice(0, 14)}...)
                       and immutable once recorded.
                     </p>
@@ -1255,7 +1739,45 @@ ${rep.analystNotes || 'No additional analyst notes recorded.'}
 
                   {/* Interactive Filter Bar */}
                   <div className="flex flex-wrap items-center gap-3">
-                    <div className="flex items-center gap-1 p-1 bg-slate-100 border border-slate-200 rounded-md">
+                    {historyDateFilter && (
+                      <div className="flex items-center gap-1.5 px-2.5 py-1 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 rounded-md text-xs font-mono">
+                        <Calendar className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>Date: {historyDateFilter}</span>
+                        <button
+                          type="button"
+                          onClick={() => setHistoryDateFilter(null)}
+                          className="ml-1 text-emerald-300 hover:text-white cursor-pointer"
+                          title="Clear date filter"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    )}
+
+                    {historyRiskCategory !== 'all' && (
+                      <div className="flex items-center gap-1.5 px-2.5 py-1 bg-slate-900 border border-slate-700 text-slate-300 rounded-md text-xs font-mono">
+                        <span
+                          className={`w-2 h-2 rounded-full inline-block ${
+                            historyRiskCategory === 'high'
+                              ? 'bg-red-500'
+                              : historyRiskCategory === 'medium'
+                                ? 'bg-amber-400'
+                                : 'bg-emerald-400'
+                          }`}
+                        />
+                        <span className="capitalize">Risk: {historyRiskCategory}</span>
+                        <button
+                          type="button"
+                          onClick={() => setHistoryRiskCategory('all')}
+                          className="ml-1 text-slate-400 hover:text-white cursor-pointer"
+                          title="Clear risk category filter"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    )}
+
+                    <div className="flex items-center gap-1 p-1 bg-slate-900 border border-slate-700 rounded-md">
                       {(['all', 'url', 'message', 'ip'] as const).map((type) => (
                         <button
                           key={type}
@@ -1263,8 +1785,8 @@ ${rep.analystNotes || 'No additional analyst notes recorded.'}
                           onClick={() => setHistoryFilter(type)}
                           className={`px-3 py-1 text-xs font-medium rounded transition-colors cursor-pointer whitespace-nowrap ${
                             historyFilter === type
-                              ? 'bg-white text-slate-900 shadow-xs'
-                              : 'text-slate-600 hover:text-slate-900'
+                              ? 'bg-blue-600 text-white shadow-xs'
+                              : 'text-slate-400 hover:text-white'
                           }`}
                         >
                           {type === 'all' ? 'All Vectors' : type.toUpperCase()}
@@ -1273,29 +1795,29 @@ ${rep.analystNotes || 'No additional analyst notes recorded.'}
                     </div>
 
                     <div className="relative">
-                      <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
+                      <Search className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-2.5" />
                       <input
                         type="text"
                         value={historySearch}
                         onChange={(e) => setHistorySearch(e.target.value)}
                         placeholder="Filter target or verdict..."
-                        className="pl-8 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded-md text-slate-900 placeholder-slate-400 focus:outline-none focus:border-emerald-600"
+                        className="pl-8 pr-3 py-1.5 text-xs bg-slate-900 border border-slate-700 rounded-md text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
                       />
                     </div>
                   </div>
                 </div>
 
                 {dataLoading ? (
-                  <div className="py-12 text-center text-xs font-mono text-slate-500">
+                  <div className="py-12 text-center text-xs font-mono text-slate-400">
                     Synchronizing scan ledger from Firestore...
                   </div>
                 ) : filteredScans.length === 0 ? (
-                  <div className="py-12 text-center space-y-3 border-t border-slate-200">
-                    <p className="text-sm text-slate-600">No security scans match the current view.</p>
+                  <div className="py-12 text-center space-y-3 border-t border-slate-800">
+                    <p className="text-sm text-slate-400">No security scans match the current view.</p>
                     <button
                       type="button"
                       onClick={() => setActiveSection('url-scanner')}
-                      className="px-4 py-2 text-xs font-semibold bg-emerald-600 text-white rounded-md cursor-pointer"
+                      className="px-4 py-2 text-xs font-semibold bg-blue-600 hover:bg-blue-500 text-white rounded-md cursor-pointer"
                     >
                       Launch First Security Scan
                     </button>
@@ -1304,7 +1826,7 @@ ${rep.analystNotes || 'No additional analyst notes recorded.'}
                   <div className="overflow-x-auto">
                     <table className="w-full text-left border-collapse text-xs">
                       <thead>
-                        <tr className="border-b border-slate-200 text-slate-500">
+                        <tr className="border-b border-slate-800 text-slate-400">
                           <th className="py-2.5 pr-4 font-medium">Vector</th>
                           <th className="py-2.5 px-4 font-medium">Inspected Target</th>
                           <th className="py-2.5 px-4 font-medium">Verdict</th>
@@ -1313,35 +1835,35 @@ ${rep.analystNotes || 'No additional analyst notes recorded.'}
                           <th className="py-2.5 pl-4 font-medium text-right">Actions</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-slate-200">
+                      <tbody className="divide-y divide-slate-800/80">
                         {filteredScans.map((scan) => (
                           <tr
                             key={scan.scanId}
-                            className="hover:bg-slate-50 transition-colors"
+                            className="hover:bg-slate-900/50 transition-colors"
                           >
-                            <td className="py-3 pr-4 font-mono uppercase text-slate-600">
+                            <td className="py-3 pr-4 font-mono uppercase text-slate-400">
                               {scan.scanType}
                             </td>
-                            <td className="py-3 px-4 font-mono text-slate-900 max-w-md truncate">
+                            <td className="py-3 px-4 font-mono text-slate-200 max-w-md truncate">
                               {scan.target}
                             </td>
                             <td className="py-3 px-4 font-semibold">
                               <span
                                 className={
                                   scan.riskScore >= 50
-                                    ? 'text-red-600'
+                                    ? 'text-red-400'
                                     : scan.riskScore >= 25
-                                      ? 'text-amber-600'
-                                      : 'text-emerald-600'
+                                      ? 'text-amber-400'
+                                      : 'text-emerald-400'
                                 }
                               >
                                 {scan.verdict}
                               </span>
                             </td>
-                            <td className="py-3 px-4 text-right font-mono tabular-nums font-semibold text-slate-900">
+                            <td className="py-3 px-4 text-right font-mono tabular-nums font-semibold text-white">
                               {scan.riskScore}/100
                             </td>
-                            <td className="py-3 px-4 font-mono text-slate-500 tabular-nums whitespace-nowrap">
+                            <td className="py-3 px-4 font-mono text-slate-400 tabular-nums whitespace-nowrap">
                               {scan.createdAt?.toDate
                                 ? scan.createdAt.toDate().toLocaleString()
                                 : 'Just now'}
@@ -1351,14 +1873,14 @@ ${rep.analystNotes || 'No additional analyst notes recorded.'}
                                 <button
                                   type="button"
                                   onClick={() => setSelectedHistoryScan(scan)}
-                                  className="px-2.5 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-50 rounded transition-colors cursor-pointer"
+                                  className="px-2.5 py-1 text-xs font-medium text-blue-400 hover:text-white hover:bg-blue-600/20 rounded transition-colors cursor-pointer"
                                 >
                                   Inspect
                                 </button>
                                 <button
                                   type="button"
                                   onClick={() => deleteScanRecord(scan.scanId)}
-                                  className="p-1 text-slate-400 hover:text-red-600 transition-colors cursor-pointer"
+                                  className="p-1 text-slate-500 hover:text-red-400 transition-colors cursor-pointer"
                                   title="Delete Scan Record"
                                 >
                                   <Trash2 className="w-3.5 h-3.5" />
@@ -1376,13 +1898,13 @@ ${rep.analystNotes || 'No additional analyst notes recorded.'}
               {selectedHistoryScan && (
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-semibold text-slate-800">
+                    <h3 className="text-sm font-semibold text-slate-200">
                       Archived Telemetry Inspection ({selectedHistoryScan.scanId})
                     </h3>
                     <button
                       type="button"
                       onClick={() => setSelectedHistoryScan(null)}
-                      className="text-xs text-slate-500 hover:text-slate-900 cursor-pointer"
+                      className="text-xs text-slate-400 hover:text-white cursor-pointer"
                     >
                       Close Inspection View
                     </button>
@@ -1391,9 +1913,14 @@ ${rep.analystNotes || 'No additional analyst notes recorded.'}
                     scanType={selectedHistoryScan.scanType}
                     target={selectedHistoryScan.target}
                     scanId={selectedHistoryScan.scanId}
+                    scanStatus="Historical"
                     data={selectedHistoryScan.analysisData}
                     onCreateReport={handleCreateReport}
                     onAskGeminiAboutScan={handleAskGeminiAboutScan}
+                    onStartVoiceTriage={(topic) => {
+                      setVoiceInitialTopic(topic);
+                      setVoiceModalOpen(true);
+                    }}
                   />
                 </div>
               )}
@@ -1405,19 +1932,19 @@ ${rep.analystNotes || 'No additional analyst notes recorded.'}
           {/* ================================================================= */}
           {activeSection === 'security-reports' && (
             <div className="space-y-6">
-              <div className="bg-white border border-slate-200 rounded-lg p-6 space-y-5">
+              <div className="bg-[#0b1325] border border-slate-800 rounded-xl p-6 space-y-5 shadow-sm">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <div>
-                    <h2 className="text-xl font-bold text-slate-900 font-display">
+                    <h2 className="text-xl font-bold text-white font-display">
                       Formal Security & Incident Reports
                     </h2>
-                    <p className="text-xs text-slate-600">
+                    <p className="text-xs text-slate-400">
                       Annotate scan findings, export executive incident briefs, or archive finalized
                       reports to lock them against further edits.
                     </p>
                   </div>
 
-                  <div className="flex items-center gap-1 p-1 bg-slate-100 border border-slate-200 rounded-md self-start">
+                  <div className="flex items-center gap-1 p-1 bg-slate-900 border border-slate-700 rounded-md self-start">
                     {(['all', 'active', 'archived'] as const).map((status) => (
                       <button
                         key={status}
@@ -1425,8 +1952,8 @@ ${rep.analystNotes || 'No additional analyst notes recorded.'}
                         onClick={() => setReportFilter(status)}
                         className={`px-3 py-1 text-xs font-medium rounded transition-colors cursor-pointer capitalize whitespace-nowrap ${
                           reportFilter === status
-                            ? 'bg-white text-slate-900 shadow-xs'
-                            : 'text-slate-600 hover:text-slate-900'
+                            ? 'bg-blue-600 text-white shadow-xs'
+                            : 'text-slate-400 hover:text-white'
                         }`}
                       >
                         {status}
@@ -1436,15 +1963,15 @@ ${rep.analystNotes || 'No additional analyst notes recorded.'}
                 </div>
 
                 {filteredReports.length === 0 ? (
-                  <div className="py-12 text-center space-y-3 border-t border-slate-200">
-                    <p className="text-sm text-slate-600">
+                  <div className="py-12 text-center space-y-3 border-t border-slate-800">
+                    <p className="text-sm text-slate-400">
                       No security reports generated yet. Run any scan and click “Generate Security
                       Report”.
                     </p>
                     <button
                       type="button"
                       onClick={() => setActiveSection('url-scanner')}
-                      className="px-4 py-2 text-xs font-semibold bg-emerald-600 text-white rounded-md cursor-pointer"
+                      className="px-4 py-2 text-xs font-semibold bg-blue-600 hover:bg-blue-500 text-white rounded-md cursor-pointer"
                     >
                       Go to URL Scanner
                     </button>
@@ -1452,7 +1979,7 @@ ${rep.analystNotes || 'No additional analyst notes recorded.'}
                 ) : (
                   <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 pt-2">
                     {/* Reports List (5 cols) */}
-                    <div className="lg:col-span-5 divide-y divide-slate-200 border border-slate-200 rounded-md bg-white">
+                    <div className="lg:col-span-5 divide-y divide-slate-800 border border-slate-800 rounded-lg bg-slate-950/70">
                       {filteredReports.map((rep) => {
                         const isSelected = selectedReport?.reportId === rep.reportId;
                         return (
@@ -1465,19 +1992,19 @@ ${rep.analystNotes || 'No additional analyst notes recorded.'}
                               setReportFeedback(null);
                             }}
                             className={`p-4 cursor-pointer transition-colors space-y-1.5 ${
-                              isSelected ? 'bg-emerald-50/60' : 'hover:bg-slate-50'
+                              isSelected ? 'bg-blue-600/15 border-l-2 border-l-blue-500' : 'hover:bg-slate-900/60'
                             }`}
                           >
-                            <div className="flex items-center justify-between text-[11px] font-mono text-slate-500">
+                            <div className="flex items-center justify-between text-[11px] font-mono text-slate-400">
                               <span>
                                 {rep.scanType.toUpperCase()} · {rep.status.toUpperCase()}
                               </span>
                               <span className="tabular-nums">Score: {rep.riskScore}/100</span>
                             </div>
-                            <p className="text-xs font-semibold text-slate-900 truncate">
+                            <p className="text-xs font-semibold text-white truncate">
                               {rep.title}
                             </p>
-                            <p className="text-[11px] font-mono text-slate-500 truncate">
+                            <p className="text-[11px] font-mono text-slate-400 truncate">
                               {rep.target}
                             </p>
                           </div>
@@ -1486,16 +2013,16 @@ ${rep.analystNotes || 'No additional analyst notes recorded.'}
                     </div>
 
                     {/* Report Detail & Editor (7 cols) */}
-                    <div className="lg:col-span-7 border border-slate-200 rounded-md bg-slate-50/50 p-5">
+                    <div className="lg:col-span-7 border border-slate-800 rounded-lg bg-slate-950/40 p-5">
                       {selectedReport ? (
                         <div className="space-y-4">
-                          <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-200">
-                            <div className="text-xs font-mono text-slate-500">
+                          <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-800">
+                            <div className="text-xs font-mono text-slate-400">
                               <span>ID: {selectedReport.reportId}</span>
                               <span className="mx-2">·</span>
                               <span>
                                 Status:{' '}
-                                <strong className="text-slate-900 uppercase">
+                                <strong className="text-white uppercase">
                                   {selectedReport.status}
                                 </strong>
                               </span>
@@ -1505,7 +2032,7 @@ ${rep.analystNotes || 'No additional analyst notes recorded.'}
                               <button
                                 type="button"
                                 onClick={() => handleDownloadReportMarkdown(selectedReport)}
-                                className="px-2.5 py-1 text-xs font-medium bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 rounded flex items-center gap-1.5 cursor-pointer"
+                                className="px-2.5 py-1 text-xs font-medium bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700 rounded flex items-center gap-1.5 cursor-pointer"
                               >
                                 <Download className="w-3.5 h-3.5" />
                                 <span>Export .MD</span>
@@ -1523,7 +2050,7 @@ ${rep.analystNotes || 'No additional analyst notes recorded.'}
                                       'Report archived and locked in terminal state.'
                                     );
                                   }}
-                                  className="px-2.5 py-1 text-xs font-medium bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 rounded flex items-center gap-1.5 cursor-pointer"
+                                  className="px-2.5 py-1 text-xs font-medium bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded flex items-center gap-1.5 cursor-pointer"
                                 >
                                   <Archive className="w-3.5 h-3.5" />
                                   <span>Archive & Lock</span>
@@ -1535,7 +2062,7 @@ ${rep.analystNotes || 'No additional analyst notes recorded.'}
                                   await deleteSecurityReport(selectedReport.reportId);
                                   setSelectedReport(null);
                                 }}
-                                className="p-1 text-slate-400 hover:text-red-600 cursor-pointer"
+                                className="p-1 text-slate-400 hover:text-red-400 cursor-pointer"
                                 title="Delete Report"
                               >
                                 <Trash2 className="w-4 h-4" />
@@ -1544,13 +2071,13 @@ ${rep.analystNotes || 'No additional analyst notes recorded.'}
                           </div>
 
                           {reportFeedback && (
-                            <div className="p-2.5 rounded bg-emerald-50 border border-emerald-200 text-xs text-emerald-800">
+                            <div className="p-2.5 rounded bg-emerald-500/10 border border-emerald-500/30 text-xs text-emerald-400">
                               {reportFeedback}
                             </div>
                           )}
 
                           <div className="space-y-1.5">
-                            <label className="block text-xs font-medium text-slate-700">
+                            <label className="block text-xs font-medium text-slate-300">
                               Report Title
                             </label>
                             <input
@@ -1559,12 +2086,12 @@ ${rep.analystNotes || 'No additional analyst notes recorded.'}
                               value={editReportTitle}
                               onChange={(e) => setEditReportTitle(e.target.value)}
                               maxLength={200}
-                              className="w-full px-3 py-2 text-xs bg-white border border-slate-300 rounded text-slate-900 disabled:opacity-60"
+                              className="w-full px-3 py-2 text-xs bg-slate-900 border border-slate-700 rounded text-white disabled:opacity-60 focus:outline-none focus:border-blue-500"
                             />
                           </div>
 
                           <div className="space-y-1.5">
-                            <label className="block text-xs font-medium text-slate-700">
+                            <label className="block text-xs font-medium text-slate-300">
                               Analyst Investigation Notes & Remediation Plan
                             </label>
                             <textarea
@@ -1573,7 +2100,7 @@ ${rep.analystNotes || 'No additional analyst notes recorded.'}
                               value={editReportNotes}
                               onChange={(e) => setEditReportNotes(e.target.value)}
                               maxLength={5000}
-                              className="w-full p-3 text-xs font-mono bg-white border border-slate-300 rounded text-slate-800 disabled:opacity-60 leading-relaxed"
+                              className="w-full p-3 text-xs font-mono bg-slate-900 border border-slate-700 rounded text-slate-200 disabled:opacity-60 leading-relaxed focus:outline-none focus:border-blue-500"
                             />
                           </div>
 
@@ -1595,19 +2122,19 @@ ${rep.analystNotes || 'No additional analyst notes recorded.'}
                                   setSavingReportEdit(false);
                                 }
                               }}
-                              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs rounded cursor-pointer"
+                              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs rounded cursor-pointer"
                             >
                               {savingReportEdit ? 'Saving...' : 'Save Report Updates'}
                             </button>
                           ) : (
-                            <p className="text-xs text-amber-700 font-mono">
+                            <p className="text-xs text-amber-400 font-mono">
                               This report is archived (terminal state) and locked from further
                               modifications by Firestore security rules.
                             </p>
                           )}
                         </div>
                       ) : (
-                        <div className="py-16 text-center text-xs text-slate-500">
+                        <div className="py-16 text-center text-xs text-slate-400">
                           Select a report from the left column to view, annotate, or export.
                         </div>
                       )}
@@ -1619,31 +2146,45 @@ ${rep.analystNotes || 'No additional analyst notes recorded.'}
           )}
 
           {/* ================================================================= */}
+          {/* 6b. SECURITY AWARENESS & TRAINING WORKSPACE                       */}
+          {/* ================================================================= */}
+          {activeSection === 'security-awareness' && (
+            <SecurityAwarenessWorkspace />
+          )}
+
+          {/* ================================================================= */}
+          {/* 6c. SECURITY ANALYTICS & RISK TELEMETRY WORKSPACE                 */}
+          {/* ================================================================= */}
+          {activeSection === 'security-analytics' && (
+            <SecurityAnalyticsWorkspace scans={scans} />
+          )}
+
+          {/* ================================================================= */}
           {/* 7. USER PROFILE & SECURITY WORKSPACE                              */}
           {/* ================================================================= */}
           {activeSection === 'user-profile' && (
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
               {/* Public Analyst Profile Editor (7 cols) */}
-              <div className="lg:col-span-7 bg-white border border-slate-200 rounded-lg p-6 space-y-5">
-                <div className="space-y-1 border-b border-slate-200 pb-3">
-                  <h2 className="text-lg font-bold text-slate-900 font-display">
+              <div className="lg:col-span-7 bg-[#0b1325] border border-slate-800 rounded-xl p-6 space-y-5 shadow-sm">
+                <div className="space-y-1 border-b border-slate-800 pb-3">
+                  <h2 className="text-lg font-bold text-white font-display">
                     Analyst Identity & Workspace Profile
                   </h2>
-                  <p className="text-xs text-slate-600">
+                  <p className="text-xs text-slate-400">
                     Stored in `/users/{'{userId}'}` with strict key & length validation.
                   </p>
                 </div>
 
                 {profileFeedback && (
-                  <div className="p-3 rounded bg-emerald-50 border border-emerald-200 text-xs text-emerald-800 flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <div className="p-3 rounded bg-emerald-500/10 border border-emerald-500/30 text-xs text-emerald-400 flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
                     <span>{profileFeedback}</span>
                   </div>
                 )}
 
                 <form onSubmit={handleSaveProfile} className="space-y-4">
                   <div className="space-y-1.5">
-                    <label className="block text-xs font-medium text-slate-700">
+                    <label className="block text-xs font-medium text-slate-300">
                       Analyst Display Name
                     </label>
                     <input
@@ -1652,12 +2193,12 @@ ${rep.analystNotes || 'No additional analyst notes recorded.'}
                       maxLength={100}
                       value={profileName}
                       onChange={(e) => setProfileName(e.target.value)}
-                      className="w-full px-3.5 py-2 text-sm bg-slate-50 border border-slate-300 rounded-md text-slate-900 focus:outline-none focus:border-emerald-600"
+                      className="w-full px-3.5 py-2 text-sm bg-slate-900 border border-slate-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
                     />
                   </div>
 
                   <div className="space-y-1.5">
-                    <label className="block text-xs font-medium text-slate-700">
+                    <label className="block text-xs font-medium text-slate-300">
                       Organization / Security Team
                     </label>
                     <input
@@ -1665,25 +2206,25 @@ ${rep.analystNotes || 'No additional analyst notes recorded.'}
                       maxLength={120}
                       value={profileOrg}
                       onChange={(e) => setProfileOrg(e.target.value)}
-                      className="w-full px-3.5 py-2 text-sm bg-slate-50 border border-slate-300 rounded-md text-slate-900 focus:outline-none focus:border-emerald-600"
+                      className="w-full px-3.5 py-2 text-sm bg-slate-900 border border-slate-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
                     />
                   </div>
 
                   <div className="space-y-1.5">
-                    <label className="block text-xs font-medium text-slate-700">Role / Title</label>
+                    <label className="block text-xs font-medium text-slate-300">Role / Title</label>
                     <input
                       type="text"
                       maxLength={100}
                       value={profileJob}
                       onChange={(e) => setProfileJob(e.target.value)}
-                      className="w-full px-3.5 py-2 text-sm bg-slate-50 border border-slate-300 rounded-md text-slate-900 focus:outline-none focus:border-emerald-600"
+                      className="w-full px-3.5 py-2 text-sm bg-slate-900 border border-slate-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
                     />
                   </div>
 
                   <button
                     type="submit"
                     disabled={savingProfile}
-                    className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-semibold text-xs rounded-md transition-colors cursor-pointer"
+                    className="px-5 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-semibold text-xs rounded-lg transition-colors cursor-pointer shadow-sm"
                   >
                     {savingProfile ? 'Saving Profile...' : 'Update Analyst Profile'}
                   </button>
@@ -1691,36 +2232,36 @@ ${rep.analystNotes || 'No additional analyst notes recorded.'}
               </div>
 
               {/* Isolated PII & Session Controls (5 cols) */}
-              <div className="lg:col-span-5 bg-white border border-slate-200 rounded-lg p-6 space-y-5">
-                <div className="space-y-1 border-b border-slate-200 pb-3">
-                  <h3 className="text-lg font-bold text-slate-900 font-display">
+              <div className="lg:col-span-5 bg-[#0b1325] border border-slate-800 rounded-xl p-6 space-y-5 shadow-sm">
+                <div className="space-y-1 border-b border-slate-800 pb-3">
+                  <h3 className="text-lg font-bold text-white font-display">
                     Isolated PII Vault & Session Security
                   </h3>
-                  <p className="text-xs text-slate-600">
+                  <p className="text-xs text-slate-400">
                     Isolated inside `/users/{'{userId}'}/private/info` per Zero-Trust PII separation.
                   </p>
                 </div>
 
                 <dl className="space-y-3 text-xs">
-                  <div className="flex justify-between py-1.5 border-b border-slate-100">
-                    <dt className="text-slate-500">Authenticated UID</dt>
-                    <dd className="font-mono text-slate-900">{user.uid.slice(0, 18)}...</dd>
+                  <div className="flex justify-between py-1.5 border-b border-slate-800">
+                    <dt className="text-slate-400">Authenticated UID</dt>
+                    <dd className="font-mono text-slate-200">{user.uid.slice(0, 18)}...</dd>
                   </div>
-                  <div className="flex justify-between py-1.5 border-b border-slate-100">
-                    <dt className="text-slate-500">Primary Auth Provider</dt>
-                    <dd className="font-mono text-emerald-700 font-semibold">
+                  <div className="flex justify-between py-1.5 border-b border-slate-800">
+                    <dt className="text-slate-400">Primary Auth Provider</dt>
+                    <dd className="font-mono text-emerald-400 font-semibold">
                       {privateInfo?.authProvider || user.providerData?.[0]?.providerId || 'firebase'}
                     </dd>
                   </div>
-                  <div className="flex justify-between py-1.5 border-b border-slate-100">
-                    <dt className="text-slate-500">Verified Email</dt>
-                    <dd className="font-mono text-slate-800">
+                  <div className="flex justify-between py-1.5 border-b border-slate-800">
+                    <dt className="text-slate-400">Verified Email</dt>
+                    <dd className="font-mono text-slate-200">
                       {privateInfo?.email || user.email || 'Not Linked'}
                     </dd>
                   </div>
-                  <div className="flex justify-between py-1.5 border-b border-slate-100">
-                    <dt className="text-slate-500">Phone Number</dt>
-                    <dd className="font-mono text-slate-800 tabular-nums">
+                  <div className="flex justify-between py-1.5 border-b border-slate-800">
+                    <dt className="text-slate-400">Phone Number</dt>
+                    <dd className="font-mono text-slate-200 tabular-nums">
                       {privateInfo?.phoneNumber || user.phoneNumber || 'Not Linked'}
                     </dd>
                   </div>
@@ -1731,9 +2272,9 @@ ${rep.analystNotes || 'No additional analyst notes recorded.'}
                     <button
                       type="button"
                       onClick={handlePasswordResetRequest}
-                      className="w-full py-2 px-3 text-xs font-medium text-slate-800 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded-md transition-colors flex items-center justify-center gap-2 cursor-pointer"
+                      className="w-full py-2 px-3 text-xs font-medium text-slate-300 bg-slate-900 hover:bg-slate-800 border border-slate-700 rounded-md transition-colors flex items-center justify-center gap-2 cursor-pointer"
                     >
-                      <Lock className="w-3.5 h-3.5 text-emerald-600" />
+                      <Lock className="w-3.5 h-3.5 text-blue-400" />
                       <span>Send Password Reset Link to {user.email}</span>
                     </button>
                   )}
@@ -1741,7 +2282,7 @@ ${rep.analystNotes || 'No additional analyst notes recorded.'}
                   <button
                     type="button"
                     onClick={() => signOut(auth)}
-                    className="w-full py-2 px-3 text-xs font-medium text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-md transition-colors flex items-center justify-center gap-2 cursor-pointer"
+                    className="w-full py-2 px-3 text-xs font-medium text-red-400 bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 rounded-md transition-colors flex items-center justify-center gap-2 cursor-pointer"
                   >
                     <LogOut className="w-3.5 h-3.5" />
                     <span>Terminate Session & Sign Out</span>
@@ -1750,6 +2291,13 @@ ${rep.analystNotes || 'No additional analyst notes recorded.'}
               </div>
             </div>
           )}
+
+          {/* ================================================================= */}
+          {/* 8. SECURITY SETTINGS & 12-SUBSYSTEM HEALTH DASHBOARD              */}
+          {/* ================================================================= */}
+          {activeSection === 'security-settings' && (
+            <SecuritySettingsWorkspace />
+          )}
         </main>
       </div>
 
@@ -1757,16 +2305,16 @@ ${rep.analystNotes || 'No additional analyst notes recorded.'}
       {/* OMNIPRESENT SLIDE-OVER GEMINI AI SECURITY ASSISTANT COPILOT DRAWER    */}
       {/* ===================================================================== */}
       {copilotDrawerOpen && (
-        <div className="fixed inset-0 z-50 flex justify-end bg-slate-900/30 backdrop-blur-[1px]">
-          <div className="w-full max-w-md bg-white border-l border-slate-200 h-full flex flex-col shadow-xl">
-            <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between gap-3 bg-white">
+        <div className="fixed inset-0 z-50 flex justify-end bg-black/60 backdrop-blur-xs">
+          <div className="w-full max-w-md bg-[#070d19] border-l border-slate-800 h-full flex flex-col shadow-2xl">
+            <div className="px-5 py-4 border-b border-slate-800 flex items-center justify-between gap-3 bg-[#070d19]">
               <div className="flex items-center gap-2 min-w-0">
-                <Sparkles className="w-4 h-4 text-emerald-600 shrink-0" />
+                <Sparkles className="w-4 h-4 text-blue-400 shrink-0" />
                 <div className="min-w-0">
-                  <h3 className="text-sm font-bold text-slate-900 font-display truncate">
+                  <h3 className="text-sm font-bold text-white font-display truncate">
                     Gemini AI Security Assistant
                   </h3>
-                  <p className="text-[11px] text-slate-500 font-mono truncate">
+                  <p className="text-[11px] text-slate-400 font-mono truncate">
                     Live Tool Calling · Search Grounding · TTS Audio
                   </p>
                 </div>
@@ -1779,7 +2327,7 @@ ${rep.analystNotes || 'No additional analyst notes recorded.'}
                     setCopilotDrawerOpen(false);
                     setActiveSection('ai-assistant');
                   }}
-                  className="px-2.5 py-1 text-[11px] font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded flex items-center gap-1 cursor-pointer"
+                  className="px-2.5 py-1 text-[11px] font-medium text-blue-400 bg-blue-600/15 hover:bg-blue-600/25 border border-blue-500/30 rounded flex items-center gap-1 cursor-pointer"
                   title="Open Full Gemini AI Studio (Voice, Transcribe, Maps, Veo 3)"
                 >
                   <Maximize2 className="w-3 h-3" />
@@ -1788,7 +2336,7 @@ ${rep.analystNotes || 'No additional analyst notes recorded.'}
                 <button
                   type="button"
                   onClick={() => setCopilotDrawerOpen(false)}
-                  className="p-1 text-slate-500 hover:text-slate-900 cursor-pointer"
+                  className="p-1 text-slate-400 hover:text-white cursor-pointer"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -1796,23 +2344,23 @@ ${rep.analystNotes || 'No additional analyst notes recorded.'}
             </div>
 
             {/* Model Selector & Active Scan Context Indicator */}
-            <div className="px-5 py-2.5 border-b border-slate-200 bg-slate-50 flex items-center justify-between gap-2 text-xs">
+            <div className="px-5 py-2.5 border-b border-slate-800 bg-[#050914] flex items-center justify-between gap-2 text-xs">
               <select
                 value={drawerModel}
                 onChange={(e) => setDrawerModel(e.target.value as any)}
-                className="px-2.5 py-1 bg-white border border-slate-300 rounded text-slate-900 font-mono text-[11px] focus:outline-none focus:border-emerald-600"
+                className="px-2.5 py-1 bg-slate-900 border border-slate-700 rounded text-white font-mono text-[11px] focus:outline-none focus:border-blue-500"
               >
-                <option value="gemini-3.8-flash">gemini-3.8-flash</option>
-                <option value="gemini-3.1-flash-lite">gemini-3.1-flash-lite</option>
-                <option value="gemini-3.1-pro-preview">gemini-3.1-pro-preview</option>
+                <option value="gemini-3.8-flash">gemini-3.8-flash (General Tasks)</option>
+                <option value="gemini-3.1-flash-lite">gemini-3.1-flash-lite (Fast Tasks)</option>
+                <option value="gemini-4-argon">gemini-4-argon (Complex Tasks)</option>
               </select>
 
               {activeWorkspaceScanContext ? (
-                <span className="text-[11px] font-mono text-emerald-700 truncate">
+                <span className="text-[11px] font-mono text-emerald-400 truncate">
                   Context: {activeWorkspaceScanContext.label}
                 </span>
               ) : (
-                <span className="text-[11px] font-mono text-slate-500">
+                <span className="text-[11px] font-mono text-slate-400">
                   Live Scanners Active
                 </span>
               )}
@@ -1821,18 +2369,18 @@ ${rep.analystNotes || 'No additional analyst notes recorded.'}
             {/* Messages Area */}
             <div
               ref={drawerScrollRef}
-              className="flex-1 p-4 overflow-y-auto space-y-3.5 bg-slate-50/40"
+              className="flex-1 p-4 overflow-y-auto space-y-3.5 bg-[#030712]"
             >
               {drawerMessages.length === 0 ? (
                 <div className="py-8 text-center space-y-4">
-                  <div className="w-9 h-9 rounded-full bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-700 mx-auto">
+                  <div className="w-9 h-9 rounded-full bg-blue-600/10 border border-blue-500/30 flex items-center justify-center text-blue-400 mx-auto">
                     <Sparkles className="w-4 h-4" />
                   </div>
                   <div className="space-y-1 px-2">
-                    <p className="text-xs font-semibold text-slate-900">
+                    <p className="text-xs font-semibold text-white">
                       Ask Gemini to Scan Targets or Explain Telemetry
                     </p>
-                    <p className="text-[11px] text-slate-600 leading-relaxed">
+                    <p className="text-[11px] text-slate-400 leading-relaxed">
                       Gemini can directly execute live URL, Domain, DNS, RDAP, Public IP, and
                       Message scans via Function Calling, or analyze your current scan result.
                     </p>
@@ -1849,7 +2397,7 @@ ${rep.analystNotes || 'No additional analyst notes recorded.'}
                         key={prompt}
                         type="button"
                         onClick={() => handleSendDrawerMessage(undefined, prompt)}
-                        className="w-full p-2.5 text-xs bg-white hover:bg-emerald-50/60 border border-slate-200 hover:border-emerald-300 rounded-md text-slate-700 text-left transition-colors cursor-pointer"
+                        className="w-full p-2.5 text-xs bg-[#0b1325] hover:bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-lg text-slate-300 text-left transition-colors cursor-pointer"
                       >
                         {prompt}
                       </button>
@@ -1867,29 +2415,29 @@ ${rep.analystNotes || 'No additional analyst notes recorded.'}
                     <div
                       className={`max-w-[90%] rounded-lg p-3 text-xs leading-relaxed whitespace-pre-wrap ${
                         m.role === 'user'
-                          ? 'bg-slate-900 text-white'
-                          : 'bg-white border border-slate-200 text-slate-800 shadow-2xs'
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-[#0b1325] border border-slate-800 text-slate-200 shadow-2xs'
                       }`}
                     >
                       {Array.isArray(m.executedTools) && m.executedTools.length > 0 && (
-                        <div className="mb-2.5 pb-2 border-b border-slate-200 space-y-1.5">
-                          <p className="text-[10px] font-mono font-semibold text-emerald-700">
+                        <div className="mb-2.5 pb-2 border-b border-slate-800 space-y-1.5">
+                          <p className="text-[10px] font-mono font-semibold text-emerald-400">
                             Executed Live Tool:
                           </p>
                           {m.executedTools.map((t, tIdx) => (
                             <div
                               key={tIdx}
-                              className="p-2 rounded bg-slate-50 border border-slate-200 font-mono text-[10px] space-y-0.5"
+                              className="p-2 rounded bg-slate-900 border border-slate-800 font-mono text-[10px] space-y-0.5"
                             >
                               <div className="flex items-center justify-between gap-2">
-                                <span className="font-semibold text-slate-900 truncate">
+                                <span className="font-semibold text-white truncate">
                                   {t.toolName}: {t.target}
                                 </span>
-                                <span className="text-emerald-700 font-semibold shrink-0">
+                                <span className="text-emerald-400 font-semibold shrink-0">
                                   {t.riskScore}/100
                                 </span>
                               </div>
-                              <p className="text-slate-600">{t.summary}</p>
+                              <p className="text-slate-400">{t.summary}</p>
                             </div>
                           ))}
                         </div>
@@ -1898,11 +2446,11 @@ ${rep.analystNotes || 'No additional analyst notes recorded.'}
                       <div>{m.text}</div>
 
                       {m.role === 'model' && (
-                        <div className="mt-2.5 pt-2 border-t border-slate-100 flex items-center justify-between">
+                        <div className="mt-2.5 pt-2 border-t border-slate-800 flex items-center justify-between">
                           <button
                             type="button"
                             onClick={() => handlePlayDrawerTts(m.text, idx)}
-                            className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-600 hover:text-emerald-700 cursor-pointer"
+                            className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-400 hover:text-white cursor-pointer"
                           >
                             <Volume2 className="w-3 h-3" />
                             <span>{drawerTtsIdx === idx ? 'Playing Audio...' : 'Listen (TTS)'}</span>
@@ -1913,7 +2461,7 @@ ${rep.analystNotes || 'No additional analyst notes recorded.'}
                               href={m.sources[0].uri}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1 text-[10px] font-mono text-emerald-700 hover:underline"
+                              className="inline-flex items-center gap-1 text-[10px] font-mono text-blue-400 hover:underline"
                             >
                               <span>{m.sources.length} Web Source(s)</span>
                               <ExternalLink className="w-2.5 h-2.5" />
@@ -1927,38 +2475,76 @@ ${rep.analystNotes || 'No additional analyst notes recorded.'}
               )}
 
               {drawerSending && (
-                <div className="text-xs font-mono text-slate-600 flex items-center gap-2">
-                  <RefreshCw className="w-3.5 h-3.5 animate-spin text-emerald-600" />
+                <div className="text-xs font-mono text-slate-400 flex items-center gap-2">
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin text-blue-400" />
                   <span>Gemini is analyzing...</span>
                 </div>
               )}
             </div>
 
             {drawerError && (
-              <div className="px-4 py-2 bg-red-50 border-t border-red-200 text-xs text-red-700">
+              <div className="px-4 py-2 bg-red-500/10 border-t border-red-500/30 text-xs text-red-400">
                 {drawerError}
               </div>
             )}
 
             <form
               onSubmit={(e) => handleSendDrawerMessage(e)}
-              className="p-3.5 border-t border-slate-200 bg-white flex items-center gap-2"
+              className="p-3.5 border-t border-slate-800 bg-[#070d19] flex items-center gap-2"
             >
               <input
                 type="text"
                 value={drawerInput}
                 onChange={(e) => setDrawerInput(e.target.value)}
                 placeholder="Ask Gemini to scan a URL/IP or explain..."
-                className="flex-1 px-3 py-2 text-xs bg-slate-50 border border-slate-300 rounded-md text-slate-900 placeholder-slate-400 focus:outline-none focus:border-emerald-600"
+                className="flex-1 px-3 py-2 text-xs bg-slate-900 border border-slate-700 rounded-md text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
               />
               <button
                 type="submit"
                 disabled={drawerSending || !drawerInput.trim()}
-                className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-semibold rounded-md flex items-center gap-1 cursor-pointer"
+                className="px-3.5 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-semibold rounded-md flex items-center gap-1 cursor-pointer"
               >
                 <Send className="w-3.5 h-3.5" />
               </button>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Floating Quick Live Voice Action Pill (Available across all screens) */}
+      <div className="fixed bottom-6 right-6 z-30 flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => {
+            setVoiceInitialTopic(null);
+            setVoiceModalOpen(true);
+          }}
+          className="flex items-center gap-2 px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-full shadow-xl border border-slate-700 text-xs font-semibold cursor-pointer transition-all duration-200 hover:scale-105 active:scale-95 group"
+          title="Launch Live Voice Conversation with Gemini 3.8 Live"
+        >
+          <span className="relative flex h-2.5 w-2.5">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500" />
+          </span>
+          <Radio className="w-3.5 h-3.5 text-emerald-400" />
+          <span>Live Voice Copilot</span>
+        </button>
+      </div>
+
+      {/* Live Voice Assistant Modal Dialog */}
+      {voiceModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-xs">
+          <div className="w-full max-w-4xl bg-[#070d19] rounded-xl shadow-2xl overflow-hidden border border-slate-800 animate-in fade-in zoom-in-95 duration-150">
+            <LiveVoiceAssistant
+              isModal
+              initialTopic={voiceInitialTopic}
+              onCloseModal={() => setVoiceModalOpen(false)}
+              onSendTranscriptToMessageScanner={(transcript) => {
+                setMsgInput(transcript);
+                setActiveSection('message-scanner');
+                setVoiceModalOpen(false);
+              }}
+            />
           </div>
         </div>
       )}

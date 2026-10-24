@@ -7,7 +7,7 @@ import dotenv from 'dotenv';
 import multer from 'multer';
 import { WebSocketServer } from 'ws';
 import { createServer as createViteServer } from 'vite';
-import { adminAuth, requireAuth, AuthenticatedRequest } from './src/server/firebaseAdmin.ts';
+import { adminAuth, requireAuth, type AuthenticatedRequest } from './src/server/firebaseAdmin.ts';
 import { analyzeUrlTarget } from './src/server/urlAnalyzer.ts';
 import { analyzeMessageContent } from './src/server/messageAnalyzer.ts';
 import { analyzeIpAddress, classifyIpScope } from './src/server/ipAnalyzer.ts';
@@ -15,7 +15,7 @@ import { analyzeScreenshotImage } from './src/server/screenshotAnalyzer.ts';
 import {
   getGenAIClient,
   Modality,
-  LiveServerMessage,
+  type LiveServerMessage,
   runSocMultiTurnChat,
   runSearchGroundingQuery,
   runMapsGroundingQuery,
@@ -25,7 +25,11 @@ import {
   pollVeoVideoOperation,
   getCompletedVeoVideoUri,
   generateSpeechAudio,
+  generateSecurityExplanation,
 } from './src/server/geminiService.ts';
+import { analyzeQrImageBuffer } from './src/server/qrAnalyzer.ts';
+import { analyzeDomainIntelligence } from './src/server/domainAnalyzer.ts';
+import { runClaudeSecurityAssistant } from './src/server/claudeService.ts';
 
 dotenv.config();
 
@@ -71,52 +75,107 @@ async function startServer() {
     });
   });
 
-  // Live System Status endpoint for Security Engines
+  // Live System Status endpoint for 12 Security Subsystems
   app.get('/api/system-status', requireAuth, (_req: AuthenticatedRequest, res) => {
     const geminiConfigured = Boolean(
       process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== 'MY_GEMINI_API_KEY'
     );
+    const claudeConfigured = Boolean(
+      process.env.ANTHROPIC_API_KEY && process.env.ANTHROPIC_API_KEY.trim().length > 10
+    );
+
     res.json({
       timestamp: new Date().toISOString(),
       services: [
         {
-          name: 'Screenshot Upload Service',
+          id: 'url-engine',
+          name: 'URL Security Scanner',
           status: 'Operational',
-          detail: 'Multipart validation (PNG/JPG/WEBP up to 10 MB) + Sharp binary header check',
+          provider: 'Native Lexical & Heuristics + Threat Feed',
+          detail: 'Syntax, X.509 TLS inspection, Punycode/homograph detection, redirect tracer',
         },
         {
-          name: 'OCR Text Engine',
+          id: 'message-engine',
+          name: 'Message Scam Analyzer',
           status: 'Operational',
+          provider: 'NLP Linguistic Engine (Multilingual)',
+          detail: 'Urgency, account threats, KYC/OTP requests, UPI/Crypto demands (EN/HI/Hinglish)',
+        },
+        {
+          id: 'screenshot-engine',
+          name: 'Screenshot & Vision Analyzer',
+          status: 'Operational',
+          provider: geminiConfigured ? 'Gemini 3.8 Vision + Tesseract' : 'Tesseract.js OCR',
+          detail: 'Multi-stage OCR, UI layout heuristic parsing, visual brand impersonation analysis',
+        },
+        {
+          id: 'qr-engine',
+          name: 'QR Code Security Decoder',
+          status: 'Operational',
+          provider: 'Sharp + jsQR Matrix Engine',
+          detail: 'Multi-pass grayscale/contrast decoding, URL/UPI/Wi-Fi payload safety verification',
+        },
+        {
+          id: 'ip-engine',
+          name: 'Public IP Intelligence',
+          status: 'Operational',
+          provider: 'IP Geolocation & ASN Resolver',
+          detail: 'Public/private range classification, Bogon filtering, Abuse reputation, reverse PTR',
+        },
+        {
+          id: 'domain-engine',
+          name: 'Domain Intelligence & RDAP',
+          status: 'Operational',
+          provider: 'ICANN RDAP + Authoritative DNS',
+          detail: 'Live DNS records (A/AAAA/MX/TXT/SPF/DMARC), real registration age, registrar lookup',
+        },
+        {
+          id: 'threat-intel',
+          name: 'Threat Intelligence Feeds',
+          status: 'Operational',
+          provider: 'URLhaus (abuse.ch) + Spamhaus/SpamCop DNSBL',
+          detail: 'Live malware URL database queries & DNS blocklist reputation lookups',
+        },
+        {
+          id: 'gemini-engine',
+          name: 'Gemini AI Explanation Engine',
+          status: geminiConfigured ? 'Operational' : 'Key Not Configured',
+          provider: 'Gemini 3.8 Flash (Google GenAI)',
           detail: geminiConfigured
-            ? 'Gemini 3.8 Multimodal Vision OCR + Local Tesseract.js Fallback'
-            : 'Local Tesseract.js OCR Engine Active',
+            ? 'Evidence-grounded multilingual threat explanation and remediation briefing'
+            : 'Rule-based deterministic evidence synthesis active (set GEMINI_API_KEY to enable AI)',
         },
         {
-          name: 'QR Detection Engine',
-          status: 'Operational',
-          detail: 'Multi-pass Sharp + jsQR pixel matrix decoder',
+          id: 'claude-engine',
+          name: 'Claude Security Assistant',
+          status: claudeConfigured ? 'Operational' : 'Not Configured',
+          provider: 'Anthropic Claude (claude-3-5-sonnet)',
+          detail: claudeConfigured
+            ? 'Deep conversational SOC incident response & threat hunting copilot'
+            : 'Set ANTHROPIC_API_KEY to activate conversational Claude SOC analysis',
         },
         {
-          name: 'URL Security Analyzer',
-          status: 'Operational',
-          detail: 'Lexical, TLS X.509, Homograph, & Safe Redirect Inspector',
-        },
-        {
-          name: 'DNS / Domain Analyzer',
-          status: 'Operational',
-          detail: 'Live DNS (A/AAAA/MX/TXT/SPF/DMARC) + Live RDAP Registration Lookup',
-        },
-        {
-          name: 'Threat Intelligence',
-          status: 'Operational',
-          detail: 'Abuse.ch URLhaus + Spamhaus ZEN / Barracuda / SpamCop DNSBL',
-        },
-        {
-          name: 'Gemini Explanation',
-          status: geminiConfigured ? 'Operational' : 'Unavailable (Key Not Configured)',
+          id: 'live-voice',
+          name: 'Gemini Live Voice Copilot',
+          status: geminiConfigured ? 'Operational' : 'Key Not Configured',
+          provider: 'Gemini 3.8 Live WebSocket Bridge (/api/live)',
           detail: geminiConfigured
-            ? 'Gemini 3.8 Flash Evidence-Grounded SOC Analyst'
-            : 'Deterministic Evidence Engine Active',
+            ? 'Real-time bidirectional 24kHz audio SOC conversational channel'
+            : 'WebSocket endpoint mounted; requires GEMINI_API_KEY',
+        },
+        {
+          id: 'risk-engine',
+          name: 'Evidence-Based Risk Scoring Matrix',
+          status: 'Operational',
+          provider: 'Deterministic 0-100 Weighted Scorer',
+          detail: 'Non-fabricated, explainable signals (Low 0-29, Med 30-59, High 60-79, Crit 80-100)',
+        },
+        {
+          id: 'db-vault',
+          name: 'Security Vault & Audit Trail',
+          status: 'Operational',
+          provider: 'Firebase Firestore with Security Rules',
+          detail: 'Strict per-user authorization, encrypted session history, and report archiving',
         },
       ],
     });
@@ -129,18 +188,32 @@ async function startServer() {
         if (uploadErr instanceof multer.MulterError) {
           if (uploadErr.code === 'LIMIT_FILE_SIZE') {
             res.status(400).json({
-              error: 'Screenshot file size exceeds the 10 MB security limit.',
+              success: false,
+              error: {
+                code: 'FILE_TOO_LARGE',
+                message: 'Screenshot file size exceeds the 10 MB security limit.',
+              },
             });
             return;
           }
-          res.status(400).json({ error: `Upload error: ${uploadErr.message}` });
+          res.status(400).json({
+            success: false,
+            error: {
+              code: 'UPLOAD_ERROR',
+              message: `Upload error: ${uploadErr.message}`,
+            },
+          });
           return;
         }
         res.status(400).json({
-          error:
-            uploadErr instanceof Error
-              ? uploadErr.message
-              : 'Invalid screenshot upload payload.',
+          success: false,
+          error: {
+            code: 'INVALID_PAYLOAD',
+            message:
+              uploadErr instanceof Error
+                ? uploadErr.message
+                : 'Invalid screenshot upload payload.',
+          },
         });
         return;
       }
@@ -149,7 +222,11 @@ async function startServer() {
         const file = req.file;
         if (!file || !file.buffer || file.buffer.byteLength === 0) {
           res.status(400).json({
-            error: 'Please upload a valid PNG, JPG/JPEG, or WEBP screenshot image (field: "image").',
+            success: false,
+            error: {
+              code: 'INVALID_FILE',
+              message: 'Please upload a valid PNG, JPG/JPEG, or WEBP screenshot image (field: "image").',
+            },
           });
           return;
         }
@@ -160,12 +237,22 @@ async function startServer() {
           mimeType: file.mimetype || 'image/png',
         });
 
-        res.json(result);
+        res.json({
+          success: true,
+          ...result,
+          risk_score: result.riskScore,
+          classification: result.verdict,
+          findings: result.evidence,
+        });
       } catch (error: unknown) {
         console.error('Screenshot scan error:', error);
-        res.status(400).json({
-          error:
-            error instanceof Error ? error.message : 'Failed to analyze screenshot security.',
+        res.status(500).json({
+          success: false,
+          error: {
+            code: 'ANALYSIS_FAILED',
+            message:
+              error instanceof Error ? error.message : 'Failed to analyze screenshot security.',
+          },
         });
       }
     });
@@ -183,7 +270,7 @@ async function startServer() {
 
       const cleanCandidate = candidateIp.replace(/^::ffff:/, '');
       if (net.isIP(cleanCandidate) !== 0 && classifyIpScope(cleanCandidate) === 'Public') {
-        res.json({ ip: cleanCandidate, source: 'Client Connection Header' });
+        res.json({ success: true, ip: cleanCandidate, source: 'Client Connection Header' });
         return;
       }
 
@@ -194,14 +281,24 @@ async function startServer() {
       if (r.ok) {
         const data = await r.json();
         if (data?.ip) {
-          res.json({ ip: data.ip, source: 'Network Egress Node' });
+          res.json({ success: true, ip: data.ip, source: 'Network Egress Node' });
           return;
         }
       }
-      res.status(404).json({ error: 'Unable to automatically determine public IP.' });
+      res.status(404).json({
+        success: false,
+        error: {
+          code: 'IP_NOT_FOUND',
+          message: 'Unable to automatically determine public IP.',
+        },
+      });
     } catch (error: unknown) {
       res.status(500).json({
-        error: error instanceof Error ? error.message : 'Failed to detect public IP',
+        success: false,
+        error: {
+          code: 'DETECTION_FAILED',
+          message: error instanceof Error ? error.message : 'Failed to detect public IP',
+        },
       });
     }
   });
@@ -211,20 +308,42 @@ async function startServer() {
     try {
       const { url } = req.body as { url?: string };
       if (!url || typeof url !== 'string' || !url.trim()) {
-        res.status(400).json({ error: 'Please provide a valid URL string to analyze.' });
+        res.status(400).json({
+          success: false,
+          error: {
+            code: 'INVALID_INPUT',
+            message: 'Please provide a valid URL string to analyze.',
+          },
+        });
         return;
       }
       if (url.length > 2048) {
-        res.status(400).json({ error: 'URL exceeds maximum length of 2048 characters.' });
+        res.status(400).json({
+          success: false,
+          error: {
+            code: 'URL_TOO_LONG',
+            message: 'URL exceeds maximum length of 2048 characters.',
+          },
+        });
         return;
       }
 
       const result = await analyzeUrlTarget(url);
-      res.json(result);
+      res.json({
+        success: true,
+        ...result,
+        risk_score: result.riskScore,
+        classification: result.verdict,
+        findings: result.evidence,
+      });
     } catch (error: unknown) {
       console.error('URL scan error:', error);
-      res.status(400).json({
-        error: error instanceof Error ? error.message : 'Failed to analyze URL.',
+      res.status(500).json({
+        success: false,
+        error: {
+          code: 'ANALYSIS_FAILED',
+          message: error instanceof Error ? error.message : 'URL analysis could not be completed.',
+        },
       });
     }
   });
@@ -238,22 +357,42 @@ async function startServer() {
         headers?: string;
       };
       if (!message || typeof message !== 'string' || !message.trim()) {
-        res.status(400).json({ error: 'Please provide message content to analyze.' });
+        res.status(400).json({
+          success: false,
+          error: {
+            code: 'INVALID_INPUT',
+            message: 'Please provide message content to analyze.',
+          },
+        });
         return;
       }
       if (message.length > 20000) {
-        res
-          .status(400)
-          .json({ error: 'Message content exceeds maximum length of 20,000 characters.' });
+        res.status(400).json({
+          success: false,
+          error: {
+            code: 'PAYLOAD_TOO_LARGE',
+            message: 'Message content exceeds maximum length of 20,000 characters.',
+          },
+        });
         return;
       }
 
       const result = await analyzeMessageContent(message, sender, headers);
-      res.json(result);
+      res.json({
+        success: true,
+        ...result,
+        risk_score: result.riskScore,
+        classification: result.verdict,
+        findings: result.evidence,
+      });
     } catch (error: unknown) {
       console.error('Message scan error:', error);
-      res.status(400).json({
-        error: error instanceof Error ? error.message : 'Failed to analyze message content.',
+      res.status(500).json({
+        success: false,
+        error: {
+          code: 'ANALYSIS_FAILED',
+          message: error instanceof Error ? error.message : 'Failed to analyze message content.',
+        },
       });
     }
   });
@@ -263,16 +402,233 @@ async function startServer() {
     try {
       const { ip } = req.body as { ip?: string };
       if (!ip || typeof ip !== 'string' || !ip.trim()) {
-        res.status(400).json({ error: 'Please provide an IPv4 or IPv6 address to analyze.' });
+        res.status(400).json({
+          success: false,
+          error: {
+            code: 'INVALID_INPUT',
+            message: 'Please provide an IPv4 or IPv6 address to analyze.',
+          },
+        });
         return;
       }
 
       const result = await analyzeIpAddress(ip.trim(), true);
-      res.json(result);
+      res.json({
+        success: true,
+        ...result,
+        risk_score: result.riskScore,
+        classification: result.verdict,
+        findings: result.evidence,
+      });
     } catch (error: unknown) {
       console.error('IP scan error:', error);
-      res.status(400).json({
-        error: error instanceof Error ? error.message : 'Failed to analyze IP address.',
+      res.status(500).json({
+        success: false,
+        error: {
+          code: 'ANALYSIS_FAILED',
+          message: error instanceof Error ? error.message : 'Failed to analyze IP address.',
+        },
+      });
+    }
+  });
+
+  // 3b. QR Code Security Scanner Endpoint: POST /api/scan-qr
+  app.post('/api/scan-qr', requireAuth, (req: AuthenticatedRequest, res) => {
+    screenshotUpload.single('image')(req, res, async (uploadErr: unknown) => {
+      if (uploadErr) {
+        res.status(400).json({
+          success: false,
+          error: {
+            code: 'UPLOAD_ERROR',
+            message: uploadErr instanceof Error ? uploadErr.message : 'Failed to upload QR image.',
+          },
+        });
+        return;
+      }
+
+      try {
+        let buffer: Buffer | null = null;
+        if (req.file?.buffer) {
+          buffer = req.file.buffer;
+        } else if (req.body?.imageBase64 && typeof req.body.imageBase64 === 'string') {
+          const rawBase64 = req.body.imageBase64.replace(/^data:image\/[a-zA-Z+]+;base64,/, '');
+          buffer = Buffer.from(rawBase64, 'base64');
+        }
+
+        if (!buffer || buffer.length === 0) {
+          res.status(400).json({
+            success: false,
+            error: {
+              code: 'MISSING_IMAGE',
+              message: 'Please provide a valid QR image file or base64 image data.',
+            },
+          });
+          return;
+        }
+
+        const result = await analyzeQrImageBuffer(buffer);
+        res.json({
+          success: true,
+          ...result,
+          risk_score: result.riskScore,
+          classification: result.verdict,
+          findings: result.evidence,
+        });
+      } catch (err: unknown) {
+        console.error('QR scan error:', err);
+        res.status(500).json({
+          success: false,
+          error: {
+            code: 'SCAN_FAILED',
+            message: err instanceof Error ? err.message : 'Failed to analyze QR code.',
+          },
+        });
+      }
+    });
+  });
+
+  // 3c. Domain Intelligence Endpoint: POST /api/scan-domain
+  app.post('/api/scan-domain', requireAuth, async (req: AuthenticatedRequest, res) => {
+    try {
+      const { domain } = req.body as { domain?: string };
+      if (!domain || typeof domain !== 'string' || !domain.trim()) {
+        res.status(400).json({
+          success: false,
+          error: {
+            code: 'INVALID_INPUT',
+            message: 'Please provide a valid domain name to inspect.',
+          },
+        });
+        return;
+      }
+
+      const result = await analyzeDomainIntelligence(domain.trim());
+      res.json({
+        success: true,
+        ...result,
+        risk_score: result.riskScore,
+        classification: result.verdict,
+        findings: result.evidence,
+      });
+    } catch (error: unknown) {
+      console.error('Domain scan error:', error);
+      res.status(500).json({
+        success: false,
+        error: {
+          code: 'ANALYSIS_FAILED',
+          message: error instanceof Error ? error.message : 'Failed to inspect domain.',
+        },
+      });
+    }
+  });
+
+  // 3d. Evidence-Grounded AI Security Explanation: POST /api/ai/explain
+  app.post('/api/ai/explain', requireAuth, async (req: AuthenticatedRequest, res) => {
+    try {
+      const { scanType, target, riskScore, verdict, evidenceSummary, language } = req.body as {
+        scanType: string;
+        target: string;
+        riskScore: number;
+        verdict: string;
+        evidenceSummary: string[];
+        language?: 'en' | 'hi' | 'hinglish';
+      };
+
+      if (!target || typeof target !== 'string') {
+        res.status(400).json({
+          success: false,
+          error: 'Target parameter is required.',
+        });
+        return;
+      }
+
+      const explanation = await generateSecurityExplanation(
+        (scanType as any) || 'url',
+        target,
+        typeof riskScore === 'number' ? riskScore : 0,
+        verdict || 'UNKNOWN',
+        { summary: evidenceSummary || [] }
+      );
+
+      res.json({
+        success: true,
+        explanation,
+      });
+    } catch (error: unknown) {
+      console.error('AI explanation error:', error);
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to generate AI security explanation.',
+      });
+    }
+  });
+
+  // 3e. Anthropic Claude Security Assistant: POST /api/ai/claude/chat
+  app.post('/api/ai/claude/chat', requireAuth, async (req: AuthenticatedRequest, res) => {
+    try {
+      const { message, history, attachedScanContext } = req.body as {
+        message?: string;
+        history?: Array<{ role: 'user' | 'assistant'; content: string }>;
+        attachedScanContext?: string;
+      };
+
+      if (!message || typeof message !== 'string' || !message.trim()) {
+        res.status(400).json({
+          success: false,
+          error: 'Message content is required.',
+        });
+        return;
+      }
+
+      const result = await runClaudeSecurityAssistant({
+        message: message.trim(),
+        history: Array.isArray(history) ? history : [],
+        attachedScanContext: typeof attachedScanContext === 'string' ? attachedScanContext : undefined,
+      });
+
+      res.json(result);
+    } catch (error: unknown) {
+      console.error('Claude assistant error:', error);
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : 'Claude assistant query failed.',
+      });
+    }
+  });
+
+  // 3f. Scan Result Feedback & User Reporting: POST /api/feedback
+  app.post('/api/feedback', requireAuth, async (req: AuthenticatedRequest, res) => {
+    try {
+      const { scanId, scanType, target, feedbackType, comment, contactEmail } = req.body as {
+        scanId?: string;
+        scanType?: string;
+        target?: string;
+        feedbackType?: string;
+        comment?: string;
+        contactEmail?: string;
+      };
+
+      if (!feedbackType) {
+        res.status(400).json({
+          success: false,
+          error: 'Missing feedbackType parameter.',
+        });
+        return;
+      }
+
+      // Store feedback or log for SOC quality control
+      console.log(`[USER FEEDBACK] User=${req.user?.uid} ScanId=${scanId} Type=${feedbackType} Target=${target} Comment=${comment}`);
+
+      res.json({
+        success: true,
+        message: 'Feedback received. Thank you for helping improve Phishing Shield threat intelligence.',
+        receivedAt: new Date().toISOString(),
+      });
+    } catch (error: unknown) {
+      console.error('Feedback error:', error);
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to submit feedback.',
       });
     }
   });
@@ -347,8 +703,8 @@ async function startServer() {
     }
   });
 
-  // 5. Google Search Grounding Endpoint: POST /api/grounding/search
-  app.post('/api/grounding/search', requireAuth, async (req: AuthenticatedRequest, res) => {
+  // 5. Google Search Grounding Endpoint: POST /api/grounding/search & /api/search-grounding
+  app.post(['/api/grounding/search', '/api/search-grounding'], requireAuth, async (req: AuthenticatedRequest, res) => {
     try {
       const { query } = req.body as { query?: string };
       if (!query || typeof query !== 'string' || !query.trim()) {
@@ -533,7 +889,7 @@ async function startServer() {
     }
   });
 
-  wss.on('connection', (clientWs) => {
+  wss.on('connection', (clientWs, request) => {
     const ai = getGenAIClient();
     if (!ai) {
       clientWs.send(
@@ -545,17 +901,25 @@ async function startServer() {
       return;
     }
 
+    const parsedReqUrl = new URL(request.url || '', `http://${request.headers.host || 'localhost'}`);
+    const voiceParam = parsedReqUrl.searchParams.get('voice');
+    const validVoices = ['Zephyr', 'Puck', 'Charon', 'Kore', 'Fenrir'];
+    const chosenVoice = validVoices.includes(voiceParam || '') ? voiceParam! : 'Zephyr';
+    const topicParam = parsedReqUrl.searchParams.get('topic');
+    const systemPrompt = topicParam
+      ? `You are the Phishing Shield Live Voice SOC Analyst. The user is asking about the following security context: "${topicParam.slice(0, 500)}". Speak concisely, conversationally, and clearly to help security analysts triage phishing URLs, suspicious emails, DNS/RDAP findings, and incident response steps in real time.`
+      : 'You are the Phishing Shield Live Voice SOC Analyst. Speak concisely, conversationally, and clearly to help security analysts triage phishing URLs, suspicious emails, DNS/RDAP findings, and incident response steps in real time.';
+
     const sessionPromise = ai.live.connect({
       model: 'gemini-3.8-live',
       config: {
         responseModalities: [Modality.AUDIO],
         speechConfig: {
-          voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Zephyr' } },
+          voiceConfig: { prebuiltVoiceConfig: { voiceName: chosenVoice } },
         },
         inputAudioTranscription: {},
         outputAudioTranscription: {},
-        systemInstruction:
-          'You are the Phishing Shield Live Voice SOC Analyst. Speak concisely and clearly to help security analysts triage phishing URLs, suspicious emails, DNS/RDAP findings, and incident response steps in real time.',
+        systemInstruction: systemPrompt,
       },
       callbacks: {
         onmessage: (message: LiveServerMessage) => {
@@ -637,6 +1001,29 @@ async function startServer() {
           session.close();
         })
         .catch(() => {});
+    });
+  });
+
+  // Explicit 404 handler for unmatched /api routes so they NEVER fall through to Vite / SPA index.html
+  app.all('/api/*', (req, res) => {
+    res.status(404).json({
+      success: false,
+      error: {
+        code: 'NOT_FOUND',
+        message: `API endpoint ${req.method} ${req.path} not found.`,
+      },
+    });
+  });
+
+  // Global centralized error handler for /api routes
+  app.use('/api', (err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    console.error('Unhandled API error:', err);
+    res.status(err?.status || 500).json({
+      success: false,
+      error: {
+        code: err?.code || 'INTERNAL_SERVER_ERROR',
+        message: err?.message || 'An unexpected server error occurred.',
+      },
     });
   });
 

@@ -31,51 +31,92 @@ export function formatGeminiErrorMessage(error: unknown): string {
     return `Gemini API authorization error. Please verify your GEMINI_API_KEY in the Settings > Secrets panel.`;
   }
   if (raw.includes('429') || raw.includes('RESOURCE_EXHAUSTED') || raw.includes('billing')) {
-    return `Gemini API rate limit or free-tier quota reached for this model. Try switching to gemini-3.1-flash-lite or wait a moment and try again.`;
+    return `Gemini API rate limit or free-tier quota reached for this model. Automatically routing to gemini-3.1-flash-lite.`;
   }
   return raw;
 }
 
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`${label} timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+    promise
+      .then((val) => {
+        clearTimeout(timer);
+        resolve(val);
+      })
+      .catch((err) => {
+        clearTimeout(timer);
+        reject(err);
+      });
+  });
+}
+
 /**
- * Resilient multi-model helper:
- * Attempts the requested model first, and if a 429 / quota / tool-tier error occurs,
- * automatically falls back to 'gemini-3.1-flash-lite' (and strips paid-only grounding tools if needed).
+ * Fast, resilient multi-model helper:
+ * Prioritizes low-latency execution with bounded timeouts so requests never hang.
+ * Automatically falls back to 'gemini-3.1-flash-lite' (and strips paid-only grounding tools if needed).
  */
-async function generateWithResilientFallback(
+export async function generateWithResilientFallback(
   ai: GoogleGenAI,
   params: {
     preferredModel: string;
     contents: any;
     config?: Record<string, any>;
+    timeoutMs?: number;
   }
 ): Promise<{ response: any; modelUsed: string }> {
+  const perCallTimeout = params.timeoutMs || 7000;
+  // Always put gemini-3.1-flash-lite first or immediately second for fast, reliable response
   const candidateModels = Array.from(
-    new Set([params.preferredModel, 'gemini-3.1-flash-lite', 'gemini-3.8-flash'])
+    new Set(
+      params.preferredModel === 'gemini-3.1-flash-lite'
+        ? ['gemini-3.1-flash-lite']
+        : [params.preferredModel, 'gemini-3.1-flash-lite']
+    )
   );
 
   let lastError: unknown = null;
 
-  // Pass 1: Try candidate models with full requested config
   for (const modelName of candidateModels) {
     try {
-      const response = await ai.models.generateContent({
-        model: modelName,
-        contents: params.contents,
-        config: params.config,
-      });
+      const response = await withTimeout(
+        ai.models.generateContent({
+          model: modelName,
+          contents: params.contents,
+          config: params.config,
+        }),
+        perCallTimeout,
+        `Model ${modelName}`
+      );
       return { response, modelUsed: modelName };
     } catch (err: unknown) {
       lastError = err;
       const msg = err instanceof Error ? err.message : String(err);
-      // If tools (e.g. googleSearch on free tier) triggered 429 or 400, try without tools on gemini-3.1-flash-lite
-      if (params.config?.tools && (msg.includes('429') || msg.includes('400') || msg.includes('RESOURCE_EXHAUSTED'))) {
+      // If tools (e.g. googleSearch on free tier) triggered 429, 400, or timeout, immediately run clean gemini-3.1-flash-lite
+      if (
+        params.config?.tools &&
+        (msg.includes('429') ||
+          msg.includes('400') ||
+          msg.includes('RESOURCE_EXHAUSTED') ||
+          msg.includes('timed out'))
+      ) {
         try {
-          const { tools: _ignoredTools, toolConfig: _ignoredToolConfig, ...cleanConfig } = params.config;
-          const fallbackRes = await ai.models.generateContent({
-            model: 'gemini-3.1-flash-lite',
-            contents: params.contents,
-            config: cleanConfig,
-          });
+          const {
+            tools: _ignoredTools,
+            toolConfig: _ignoredToolConfig,
+            ...cleanConfig
+          } = params.config;
+          const fallbackRes = await withTimeout(
+            ai.models.generateContent({
+              model: 'gemini-3.1-flash-lite',
+              contents: params.contents,
+              config: cleanConfig,
+            }),
+            perCallTimeout,
+            'Fallback gemini-3.1-flash-lite'
+          );
           return { response: fallbackRes, modelUsed: 'gemini-3.1-flash-lite' };
         } catch (innerErr) {
           lastError = innerErr;
@@ -99,8 +140,8 @@ export interface AIExplanationResult {
   }[];
 }
 
-function buildDeterministicExplanationFallback(
-  scanType: 'url' | 'message' | 'ip',
+export function buildDeterministicExplanationFallback(
+  scanType: 'url' | 'message' | 'ip' | 'screenshot',
   target: string,
   riskScore: number,
   verdict: string,
@@ -108,16 +149,18 @@ function buildDeterministicExplanationFallback(
 ): AIExplanationResult {
   const triggered = Array.isArray((evidenceSummary as any)?.triggeredIndicators)
     ? ((evidenceSummary as any).triggeredIndicators as any[])
-    : [];
+    : Array.isArray((evidenceSummary as any)?.evidence)
+      ? ((evidenceSummary as any).evidence as any[]).filter((e: any) => e.scoreDelta !== 0)
+      : [];
 
   const findings =
     triggered.length > 0
       ? triggered.slice(0, 5).map(
           (e: any) =>
-            `${e.indicator || 'Signal'}: ${e.value || 'Observed'} (${e.scoreDelta > 0 ? `+${e.scoreDelta}` : e.scoreDelta} pts)`
+            `${e.indicator || 'Signal'}: ${e.value || 'Observed'} (${e.scoreDelta > 0 ? `+${e.scoreDelta}` : e.scoreDelta} pts) — ${e.details || ''}`
         )
       : [
-          `Target (${target}) completed ${scanType.toUpperCase()} inspection with a score of ${riskScore}/100 (${verdict}).`,
+          `Target (${target}) completed ${scanType.toUpperCase()} inspection with a risk score of ${riskScore}/100 (${verdict}).`,
           'No high-severity malicious indicators were triggered during live telemetry checks.',
         ];
 
@@ -139,12 +182,12 @@ function buildDeterministicExplanationFallback(
         ? [
             {
               priority: 'Immediate',
-              action: 'Block target in DNS / Secure Web Gateway and isolate affected sessions',
+              action: 'Do not enter credentials, OTPs, or payment details; block target at DNS/SWG',
               rationale: 'High risk score indicates elevated phishing or infrastructure abuse risk.',
             },
             {
               priority: 'High',
-              action: 'Enforce FIDO2 / WebAuthn MFA and revoke active session tokens if clicked',
+              action: 'Enforce FIDO2 / WebAuthn MFA and revoke active session tokens if interacted with',
               rationale: 'Mitigates credential harvesting and session hijacking.',
             },
           ]
@@ -152,7 +195,8 @@ function buildDeterministicExplanationFallback(
             {
               priority: 'Standard',
               action: 'Maintain standard zero-trust monitoring and verify sender/domain authenticity',
-              rationale: 'Continues defense-in-depth verification even when initial indicators appear low-risk.',
+              rationale:
+                'Continues defense-in-depth verification even when initial indicators appear low-risk.',
             },
           ],
   };
@@ -177,26 +221,28 @@ export async function generateSecurityExplanation(
   }
 
   try {
-    const prompt = `You are a Senior SOC Threat Intelligence Analyst for Phishing Shield.
+    const prompt = `You are a Senior SOC Threat Intelligence Analyst for PHISHING SHIELD.
 Analyze the following REAL security scan telemetry for a ${scanType.toUpperCase()} scan.
 Target: ${target}
 Calculated Evidence-Based Risk Score: ${riskScore}/100 (${verdict})
 
 Observed Telemetry & Evidence JSON:
-${JSON.stringify(evidenceSummary, null, 2)}
+${JSON.stringify(evidenceSummary)}
 
 CRITICAL RULES:
 1. Base your explanation STRICTLY on the provided telemetry and evidence. Never invent or guess data that is marked "Unavailable" or "Not Checked".
-2. Remember that domain age alone does not make a domain malicious.
-3. Provide a clear, concise executive summary, a deep technical assessment referencing specific signals (e.g., DNS, RDAP, TLS, lexical indicators, IP reputation, or NLP cues), 3-5 key findings, and 3-4 actionable security recommendations.`;
+2. Remember that domain age alone or missing HTTPS alone does not prove a domain is malicious.
+3. If the target message is in Hindi or Hinglish, explain the detected indicators clearly so English, Hindi, and Hinglish readers can immediately understand the risk.
+4. Provide a concise executive summary, a technical assessment referencing specific signals (DNS, RDAP, TLS, lexical indicators, IP reputation, or NLP cues), 3-5 key findings, and 3 actionable security recommendations.`;
 
     const { response } = await generateWithResilientFallback(ai, {
       preferredModel: 'gemini-3.1-flash-lite',
       contents: prompt,
+      timeoutMs: 5500,
       config: {
         systemInstruction:
-          'You are an enterprise cybersecurity analyst producing objective, evidence-backed phishing and threat assessments. Keep output concise, accurate, and grounded strictly in the provided telemetry.',
-        temperature: 0.2,
+          'You are an enterprise cybersecurity analyst producing objective, evidence-backed phishing and threat assessments. Keep output concise, fast, accurate, and grounded strictly in the provided telemetry.',
+        temperature: 0.15,
         responseMimeType: 'application/json',
         responseSchema: {
           type: Type.OBJECT,
@@ -253,16 +299,18 @@ CRITICAL RULES:
       technicalAssessment: parsed.technicalAssessment || 'See evidence breakdown.',
       keyFindings: Array.isArray(parsed.keyFindings) ? parsed.keyFindings : [],
       recommendations: Array.isArray(parsed.recommendations)
-        ? parsed.recommendations.map((r: { priority?: string; action?: string; rationale?: string }) => ({
-            priority:
-              r.priority === 'Immediate' || r.priority === 'High' ? r.priority : 'Standard',
-            action: r.action || 'Verify source authenticity',
-            rationale: r.rationale || 'Standard zero-trust verification.',
-          }))
+        ? parsed.recommendations.map(
+            (r: { priority?: string; action?: string; rationale?: string }) => ({
+              priority:
+                r.priority === 'Immediate' || r.priority === 'High' ? r.priority : 'Standard',
+              action: r.action || 'Verify source authenticity',
+              rationale: r.rationale || 'Standard zero-trust verification.',
+            })
+          )
         : [],
     };
   } catch (error) {
-    console.warn('Gemini explanation fallback activated:', error);
+    console.warn('Gemini explanation fast fallback activated:', formatGeminiErrorMessage(error));
     return buildDeterministicExplanationFallback(
       scanType,
       target,
@@ -278,11 +326,11 @@ CRITICAL RULES:
 // ============================================================================
 const ROLE_SYSTEM_INSTRUCTIONS: Record<string, string> = {
   'soc-analyst':
-    'You are the Lead Phishing Shield Gemini AI Security Assistant & SOC Threat Intelligence Analyst. You help security analysts investigate phishing URLs, RDAP domain registration anomalies, DNS records (SPF, DKIM, DMARC), ASN/IP reputation, and social engineering tactics. Provide technical, verifiable, zero-trust defensive guidance with clear headings and bullet points.',
+    'You are the Lead Phishing Shield Gemini AI Security Assistant & SOC Threat Intelligence Analyst. You help users and security analysts investigate phishing URLs, RDAP domain registration anomalies, DNS records (SPF, DKIM, DMARC), ASN/IP reputation, QR code scams (quishing), and social engineering messages. Support English, Hindi, and Hinglish naturally—reply in the same language/style the user writes in. Never invent scan data or promise 100% accuracy.',
   'incident-responder':
-    'You are an Enterprise Incident Response Commander inside Phishing Shield. Guide the user step-by-step through containment, credential revocation, session token invalidation, firewall/DNS blocking, and post-incident remediation playbooks for phishing and BEC compromises.',
+    'You are an Enterprise Incident Response Commander inside Phishing Shield. Guide the user step-by-step through containment, credential revocation, session token invalidation, UPI/bank fraud reporting (e.g. 1930 cybercrime helpline / cybercrime.gov.in / CERT), firewall/DNS blocking, and post-incident remediation playbooks. Support English, Hindi, and Hinglish naturally.',
   'dns-architect':
-    'You are a Senior Email & Domain Security Architect inside Phishing Shield. Specialize in hardening SPF, DKIM, DMARC (p=reject), BIMI, MTA-STS, DNSSEC, and TLS configurations to protect domains from spoofing and lookalike abuse.',
+    'You are a Senior Email & Domain Security Architect inside Phishing Shield. Specialize in hardening SPF, DKIM, DMARC (p=reject), BIMI, MTA-STS, DNSSEC, and TLS configurations to protect domains from spoofing and lookalike abuse. Support English, Hindi, and Hinglish naturally.',
 };
 
 export interface ExecutedToolInfo {
@@ -294,9 +342,9 @@ export interface ExecutedToolInfo {
 }
 
 /**
- * Extracts URLs, IPs, or suspicious message quotes from the analyst's prompt
- * and executes Phishing Shield's live deterministic analyzers so Gemini has real telemetry
- * in a SINGLE fast API turn.
+ * Extracts explicit URLs, IPs, or suspicious message quotes from the analyst's prompt
+ * and executes Phishing Shield's live deterministic analyzers WITHOUT redundant nested LLM calls
+ * so Gemini responds in a single fast turn.
  */
 async function executeRelevantSecurityToolsForChat(
   message: string
@@ -308,12 +356,14 @@ async function executeRelevantSecurityToolsForChat(
   const toolResultsPayload: Record<string, unknown>[] = [];
 
   try {
-    // 1. Check for explicit URL or domain scan intent
+    // 1. Check for explicit URL or explicit domain scan command (avoid false-positive words like "is")
     const urlMatch = message.match(/https?:\/\/[^\s"'<>]+/i);
     const domainActionMatch =
       !urlMatch &&
-      /\b(scan|check|inspect|analyze|whois|rdap|dns|verify|is)\b/i.test(message) &&
-      message.match(/\b([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z]{2,18})+)\b/i);
+      /\b(scan|check|inspect|analyze|whois|rdap|dns|verify)\b/i.test(message) &&
+      message.match(
+        /\b([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.(?:com|org|net|io|co|in|gov|edu|info|biz|xyz|top|online|site|tech|app|dev|me|uk|us|ca|au|de|ru|cn|tk|ml|ga|cf|gq|pw|cc|bank|sbi)(?:\.[a-z]{2,6})?)\b/i
+      );
 
     const candidateUrl = urlMatch
       ? urlMatch[0].replace(/[.,;!?)]+$/, '')
@@ -323,7 +373,7 @@ async function executeRelevantSecurityToolsForChat(
 
     if (candidateUrl && !/^\d+\.\d+\.\d+\.\d+$/.test(candidateUrl.replace(/^https?:\/\//, ''))) {
       const { analyzeUrlTarget } = await import('./urlAnalyzer.ts');
-      const scanRes = await analyzeUrlTarget(candidateUrl);
+      const scanRes = await analyzeUrlTarget(candidateUrl, { skipAiExplanation: true });
       executedTools.push({
         toolName: 'scanUrlTarget',
         target: scanRes.url || candidateUrl,
@@ -373,7 +423,9 @@ async function executeRelevantSecurityToolsForChat(
       message.length > 40
     ) {
       const { analyzeMessageContent } = await import('./messageAnalyzer.ts');
-      const msgRes = await analyzeMessageContent(message);
+      const msgRes = await analyzeMessageContent(message, undefined, undefined, {
+        skipAiExplanation: true,
+      });
       executedTools.push({
         toolName: 'scanMessagePhishing',
         target: message.slice(0, 80),
@@ -399,7 +451,7 @@ async function executeRelevantSecurityToolsForChat(
 }
 
 export async function runSocMultiTurnChat(params: {
-  model: 'gemini-3.1-flash-lite' | 'gemini-3.8-flash' | 'gemini-3.1-pro-preview';
+  model: 'gemini-3.1-flash-lite' | 'gemini-3.8-flash' | 'gemini-4-argon' | 'gemini-3.1-pro-preview';
   rolePersona: string;
   history: { role: 'user' | 'model'; text: string }[];
   message: string;
@@ -411,11 +463,12 @@ export async function runSocMultiTurnChat(params: {
   const allowedModels = new Set([
     'gemini-3.1-flash-lite',
     'gemini-3.8-flash',
+    'gemini-4-argon',
     'gemini-3.1-pro-preview',
   ]);
   const requestedModel = allowedModels.has(params.model)
     ? params.model
-    : 'gemini-3.1-flash-lite';
+    : 'gemini-3.8-flash';
   const systemInstruction =
     ROLE_SYSTEM_INSTRUCTIONS[params.rolePersona] || ROLE_SYSTEM_INSTRUCTIONS['soc-analyst'];
 
@@ -432,13 +485,11 @@ export async function runSocMultiTurnChat(params: {
   if (toolResultsPayload.length > 0) {
     contextSections.push(
       `[LIVE SECURITY SCANNER TOOL TELEMETRY EXECUTED BY PHISHING SHIELD]\n${JSON.stringify(
-        toolResultsPayload,
-        null,
-        2
+        toolResultsPayload
       )}`
     );
   }
-  contextSections.push(`[ANALYST QUESTION]\n${params.message}`);
+  contextSections.push(`[USER / ANALYST MESSAGE]\n${params.message}`);
 
   const fullUserMessage = contextSections.join('\n\n');
 
@@ -449,7 +500,7 @@ export async function runSocMultiTurnChat(params: {
   }
 
   try {
-    const formattedHistory = (params.history || []).slice(-20).map((turn) => ({
+    const formattedHistory = (params.history || []).slice(-12).map((turn) => ({
       role: turn.role,
       parts: [{ text: turn.text }],
     }));
@@ -465,8 +516,10 @@ export async function runSocMultiTurnChat(params: {
     const { response, modelUsed } = await generateWithResilientFallback(ai, {
       preferredModel: requestedModel,
       contents,
+      timeoutMs: 7500,
       config: {
         systemInstruction,
+        temperature: 0.25,
         ...(params.useSearchGrounding ? { tools: [{ googleSearch: {} }] } : {}),
       },
     });
@@ -483,7 +536,6 @@ export async function runSocMultiTurnChat(params: {
       executedTools,
     };
   } catch (error) {
-    // If Gemini API is temporarily rate-limited (429), synthesize a helpful response from live tool telemetry if available
     if (executedTools.length > 0) {
       const toolSummaryLines = executedTools.map(
         (t) =>
@@ -513,11 +565,12 @@ export async function runSearchGroundingQuery(queryText: string) {
 
   try {
     const { response, modelUsed } = await generateWithResilientFallback(ai, {
-      preferredModel: 'gemini-3.1-flash-lite',
+      preferredModel: 'gemini-3.8-flash',
       contents: queryText,
+      timeoutMs: 9000,
       config: {
         systemInstruction:
-          'You are a cybersecurity threat intelligence researcher. Provide accurate, up-to-date information on domains, CVEs, phishing campaigns, security advisories, and threat actors.',
+          'You are a cybersecurity threat intelligence researcher. Provide accurate, up-to-date information on domains, CVEs, phishing campaigns, security advisories, and threat actors using real-time Google Search data.',
         tools: [{ googleSearch: {} }],
       },
     });
@@ -563,10 +616,10 @@ export async function runMapsGroundingQuery(
       typeof longitude === 'number' &&
       !Number.isNaN(longitude);
 
-    // Note: responseMimeType and responseSchema MUST NOT be set with googleMaps
     const { response, modelUsed } = await generateWithResilientFallback(ai, {
       preferredModel: 'gemini-3.1-flash-lite',
       contents: queryText,
+      timeoutMs: 7500,
       config: {
         tools: [{ googleMaps: {} }],
         ...(hasCoords
@@ -621,7 +674,7 @@ export async function runMapsGroundingQuery(
 }
 
 // ============================================================================
-// 4. AUDIO TRANSCRIPTION (gemini-3.5-transcribe with fallback)
+// 4. AUDIO TRANSCRIPTION (gemini-3.5-transcribe with fast fallback)
 // ============================================================================
 export async function transcribeSecurityAudio(
   base64Audio: string,
@@ -644,28 +697,21 @@ export async function transcribeSecurityAudio(
     const textPart = {
       text:
         customPrompt ||
-        'Transcribe this audio accurately. If it is a voice message or security note, preserve all spoken URLs, phone numbers, and organization names.',
+        'Transcribe this audio accurately. Support English, Hindi, and Hinglish. Preserve all spoken URLs, phone numbers, and organization names.',
     };
 
-    try {
-      const response = await ai.models.generateContent({
+    const response = await withTimeout(
+      ai.models.generateContent({
         model: 'gemini-3.5-transcribe',
         contents: { parts: [audioPart, textPart] },
-      });
-      return {
-        transcript: response.text || '',
-        modelUsed: 'gemini-3.5-transcribe',
-      };
-    } catch {
-      const fallback = await ai.models.generateContent({
-        model: 'gemini-3.1-flash-lite',
-        contents: { parts: [audioPart, textPart] },
-      });
-      return {
-        transcript: fallback.text || '',
-        modelUsed: 'gemini-3.1-flash-lite',
-      };
-    }
+      }),
+      10000,
+      'Audio transcription with gemini-3.5-transcribe'
+    );
+    return {
+      transcript: response.text || '',
+      modelUsed: 'gemini-3.5-transcribe',
+    };
   } catch (error) {
     throw new Error(formatGeminiErrorMessage(error));
   }
@@ -703,7 +749,6 @@ export async function generateOrEditSecurityImage(params: {
     }
     parts.push({ text: params.prompt });
 
-    // Note: DO NOT set responseMimeType or responseSchema for nano banana models
     const response = await ai.models.generateContent({
       model: modelName,
       contents: { parts },
@@ -829,27 +874,31 @@ export async function generateSpeechAudio(params: {
   }
 
   try {
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash-lite-tts',
-      contents: [
-        {
-          role: 'user',
-          parts: [
-            {
-              text: cleanText,
+    const response = await withTimeout(
+      ai.models.generateContent({
+        model: 'gemini-3.8-flash-lite-tts',
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              {
+                text: cleanText,
+              },
+            ],
+          },
+        ],
+        config: {
+          responseModalities: ['AUDIO'],
+          speechConfig: {
+            voiceConfig: {
+              prebuiltVoiceConfig: { voiceName: params.voiceName || 'Kore' },
             },
-          ],
-        },
-      ],
-      config: {
-        responseModalities: ['AUDIO'],
-        speechConfig: {
-          voiceConfig: {
-            prebuiltVoiceConfig: { voiceName: params.voiceName || 'Kore' },
           },
         },
-      },
-    });
+      }),
+      5500,
+      'TTS synthesis'
+    );
 
     const base64Audio =
       response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;

@@ -104,7 +104,7 @@
         "scanType": {
           "type": "string",
           "description": "Type of security scan executed.",
-          "enum": ["url", "message", "ip", "screenshot"]
+          "enum": ["url", "message", "ip", "screenshot", "qr", "domain"]
         },
         "target": {
           "type": "string",
@@ -135,7 +135,7 @@
           "type": "string",
           "description": "Executive summary of the analysis.",
           "minLength": 1,
-          "maxLength": 4000
+          "maxLength": 40000
         },
         "analysisData": {
           "type": "object",
@@ -200,7 +200,7 @@
         "scanType": {
           "type": "string",
           "description": "Type of scan.",
-          "enum": ["url", "message", "ip", "screenshot"]
+          "enum": ["url", "message", "ip", "screenshot", "qr", "domain"]
         },
         "target": {
           "type": "string",

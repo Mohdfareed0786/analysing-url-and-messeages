@@ -526,7 +526,7 @@ async function traceSafeRedirects(initialUrl: string, primaryIp: string | null) 
   };
 }
 
-async function checkUrlhausThreatFeed(hostname: string): Promise<ExternalFeedStatus> {
+export async function checkUrlhausThreatFeed(hostname: string): Promise<ExternalFeedStatus> {
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 3500);
@@ -574,7 +574,10 @@ async function checkUrlhausThreatFeed(hostname: string): Promise<ExternalFeedSta
   }
 }
 
-export async function analyzeUrlTarget(rawInput: string) {
+export async function analyzeUrlTarget(
+  rawInput: string,
+  options?: { skipAiExplanation?: boolean }
+) {
   let normalizedInput = rawInput.trim();
   if (!/^https?:\/\//i.test(normalizedInput)) {
     normalizedInput = `https://${normalizedInput}`;
@@ -1140,7 +1143,9 @@ export async function analyzeUrlTarget(rawInput: string) {
     },
   ];
 
-  const aiExplanation = await generateSecurityExplanation('url', normalizedInput, riskScore, verdict, {
+  const aiExplanation = options?.skipAiExplanation
+    ? undefined
+    : await generateSecurityExplanation('url', normalizedInput, riskScore, verdict, {
     url: normalizedInput,
     domain: domainParts.registeredDomain,
     subdomain: domainParts.subdomain,
@@ -1224,3 +1229,5 @@ export async function analyzeUrlTarget(rawInput: string) {
     scannedAt: new Date().toISOString(),
   };
 }
+
+export const queryUrlhausDomain = checkUrlhausThreatFeed;

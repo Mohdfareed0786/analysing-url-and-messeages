@@ -15,7 +15,7 @@ import {
   serverTimestamp,
   Timestamp,
 } from 'firebase/firestore';
-import firebaseConfig from '../../firebase-applet-config.json';
+import firebaseConfig from '../../firebase-applet-config.json' with { type: 'json' };
 
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
@@ -124,7 +124,7 @@ export interface UserPrivateInfoDoc {
   updatedAt?: Timestamp;
 }
 
-export type AllowedScanType = 'url' | 'message' | 'ip' | 'screenshot';
+export type AllowedScanType = 'url' | 'message' | 'ip' | 'screenshot' | 'qr' | 'domain';
 export type AllowedVerdictType =
   | 'Clean'
   | 'Low Risk'

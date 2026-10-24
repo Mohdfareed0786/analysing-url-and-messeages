@@ -68,7 +68,7 @@ service cloud.firestore {
         && isValidId(data.scanId)
         && data.userId == request.auth.uid
         && isValidId(data.userId)
-        && data.scanType is string && data.scanType in ['url', 'message', 'ip', 'screenshot']
+        && data.scanType is string && data.scanType in ['url', 'message', 'ip', 'screenshot', 'qr', 'domain']
         && data.target is string && data.target.size() >= 1 && data.target.size() <= 2048
         && data.riskScore is int && data.riskScore >= 0 && data.riskScore <= 100
         && data.verdict is string && data.verdict in ['Clean', 'Low Risk', 'Suspicious', 'High Risk', 'Malicious', 'LOW RISK', 'MEDIUM RISK', 'HIGH RISK', 'CRITICAL RISK']
@@ -92,7 +92,7 @@ service cloud.firestore {
         && isValidId(data.userId)
         && isValidId(data.scanId)
         && data.title is string && data.title.size() >= 1 && data.title.size() <= 200
-        && data.scanType is string && data.scanType in ['url', 'message', 'ip', 'screenshot']
+        && data.scanType is string && data.scanType in ['url', 'message', 'ip', 'screenshot', 'qr', 'domain']
         && data.target is string && data.target.size() >= 1 && data.target.size() <= 2048
         && data.riskScore is int && data.riskScore >= 0 && data.riskScore <= 100
         && data.verdict is string && data.verdict in ['Clean', 'Low Risk', 'Suspicious', 'High Risk', 'Malicious', 'LOW RISK', 'MEDIUM RISK', 'HIGH RISK', 'CRITICAL RISK']

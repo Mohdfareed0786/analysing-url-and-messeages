@@ -57,8 +57,8 @@ export const AiSecuritySuite: React.FC<AiSecuritySuiteProps> = ({
   const [activeChatId, setActiveChatId] = useState<string | undefined>(undefined);
   const [chatTitle, setChatTitle] = useState('Gemini AI Security Investigation');
   const [selectedModel, setSelectedModel] = useState<
-    'gemini-3.1-flash-lite' | 'gemini-3.8-flash' | 'gemini-3.1-pro-preview'
-  >('gemini-3.1-flash-lite');
+    'gemini-3.1-flash-lite' | 'gemini-3.8-flash' | 'gemini-4-argon' | 'gemini-3.1-pro-preview'
+  >('gemini-3.8-flash');
   const [rolePersona, setRolePersona] = useState<string>('soc-analyst');
   const [chatSearchGrounding, setChatSearchGrounding] = useState<boolean>(true);
   const [enableSecurityTools, setEnableSecurityTools] = useState<boolean>(true);
@@ -762,8 +762,20 @@ export const AiSecuritySuite: React.FC<AiSecuritySuiteProps> = ({
       });
 
       if (!dlRes.ok) {
-        const errJson = await dlRes.json().catch(() => ({}));
-        throw new Error(errJson.error || `Video download failed (${dlRes.status})`);
+        const contentType = dlRes.headers.get('content-type') || '';
+        if (contentType.includes('application/json')) {
+          const errJson = await dlRes.json().catch(() => ({}));
+          const errMsg =
+            typeof errJson?.error === 'string'
+              ? errJson.error
+              : errJson?.error?.message ||
+                errJson?.message ||
+                `Video download failed (${dlRes.status})`;
+          throw new Error(errMsg);
+        }
+        throw new Error(
+          'The analysis service returned an unexpected response. Please check the API endpoint and backend logs.'
+        );
       }
 
       const videoBlob = await dlRes.blob();
@@ -781,18 +793,18 @@ export const AiSecuritySuite: React.FC<AiSecuritySuiteProps> = ({
   return (
     <div className="space-y-6">
       {/* Top Sub-Navigation Bar */}
-      <div className="bg-white border border-slate-200 rounded-lg p-4 flex flex-wrap items-center justify-between gap-4">
+      <div className="bg-[#0b1325] border border-slate-800 rounded-xl p-4 flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h2 className="text-lg font-bold text-slate-900 font-display">
+          <h2 className="text-lg font-bold text-white font-display">
             Gemini AI Security Operations Center
           </h2>
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-slate-400">
             Multi-turn SOC Chat, Live Voice API, Audio Transcription, Search & Maps Grounding, and
             Visual Briefing Studio.
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-1 p-1 bg-slate-100 border border-slate-200 rounded-md">
+        <div className="flex flex-wrap items-center gap-1 p-1 bg-slate-900 border border-slate-800 rounded-lg">
           {[
             { id: 'chat', label: 'SOC Chatbot', icon: <MessageSquare className="w-3.5 h-3.5" /> },
             { id: 'live-voice', label: 'Live Voice API', icon: <Radio className="w-3.5 h-3.5" /> },
@@ -812,10 +824,10 @@ export const AiSecuritySuite: React.FC<AiSecuritySuiteProps> = ({
               key={tab.id}
               type="button"
               onClick={() => setActiveTab(tab.id as SuiteTab)}
-              className={`px-3 py-1.5 text-xs font-medium rounded flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap ${
+              className={`px-3 py-1.5 text-xs font-medium rounded-md flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap ${
                 activeTab === tab.id
-                  ? 'bg-white text-slate-900 shadow-xs border border-slate-200/80'
-                  : 'text-slate-600 hover:text-slate-900'
+                  ? 'bg-emerald-600 text-white shadow-xs'
+                  : 'text-slate-400 hover:text-white'
               }`}
             >
               {tab.icon}
@@ -831,13 +843,13 @@ export const AiSecuritySuite: React.FC<AiSecuritySuiteProps> = ({
       {activeTab === 'chat' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           {/* Left: Saved Firestore Chat Threads & Role/Model Controls (4 cols) */}
-          <div className="lg:col-span-4 bg-white border border-slate-200 rounded-lg p-5 space-y-5">
-            <div className="flex items-center justify-between border-b border-slate-200 pb-3">
-              <h3 className="text-sm font-semibold text-slate-900">Configuration & Threads</h3>
+          <div className="lg:col-span-4 bg-[#0b1325] border border-slate-800 rounded-xl p-5 space-y-5">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <h3 className="text-sm font-semibold text-white">Configuration & Threads</h3>
               <button
                 type="button"
                 onClick={handleNewChat}
-                className="px-2.5 py-1 text-xs font-medium bg-emerald-600 hover:bg-emerald-700 text-white rounded flex items-center gap-1 cursor-pointer"
+                className="px-2.5 py-1 text-xs font-medium bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg flex items-center gap-1 cursor-pointer"
               >
                 <Plus className="w-3.5 h-3.5" />
                 <span>New Chat</span>
@@ -846,30 +858,30 @@ export const AiSecuritySuite: React.FC<AiSecuritySuiteProps> = ({
 
             <div className="space-y-3 text-xs">
               <div className="space-y-1">
-                <label className="block font-medium text-slate-700">Gemini Model Tier</label>
+                <label className="block font-medium text-slate-300">Gemini Model Tier</label>
                 <select
                   value={selectedModel}
                   onChange={(e) => setSelectedModel(e.target.value as any)}
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-md text-slate-900 font-mono text-xs focus:outline-none focus:border-emerald-600"
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-slate-200 font-mono text-xs focus:outline-none focus:border-emerald-500"
                 >
-                  <option value="gemini-3.1-flash-lite">
-                    gemini-3.1-flash-lite (Fast Triage)
-                  </option>
                   <option value="gemini-3.8-flash">
-                    gemini-3.8-flash (General SOC Tasks)
+                    gemini-3.8-flash (General SOC Tasks & Google Search)
                   </option>
-                  <option value="gemini-3.1-pro-preview">
-                    gemini-3.1-pro-preview (Complex Forensics)
+                  <option value="gemini-3.1-flash-lite">
+                    gemini-3.1-flash-lite (Fast Tasks / Low Latency)
+                  </option>
+                  <option value="gemini-4-argon">
+                    gemini-4-argon (Complex Multi-Step Tasks & Deep Reasoning)
                   </option>
                 </select>
               </div>
 
               <div className="space-y-1">
-                <label className="block font-medium text-slate-700">System Role Persona</label>
+                <label className="block font-medium text-slate-300">System Role Persona</label>
                 <select
                   value={rolePersona}
                   onChange={(e) => setRolePersona(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-md text-slate-900 text-xs focus:outline-none focus:border-emerald-600"
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-slate-200 text-xs focus:outline-none focus:border-emerald-500"
                 >
                   <option value="soc-analyst">Lead SOC Threat Intelligence Analyst</option>
                   <option value="incident-responder">Incident Response Commander</option>
@@ -878,13 +890,13 @@ export const AiSecuritySuite: React.FC<AiSecuritySuiteProps> = ({
               </div>
 
               <div className="space-y-1">
-                <label className="block font-medium text-slate-700">
+                <label className="block font-medium text-slate-300">
                   Attach Recent Scan Telemetry (Optional)
                 </label>
                 <select
                   value={attachedScanId}
                   onChange={(e) => setAttachedScanId(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-md text-slate-900 font-mono text-xs focus:outline-none focus:border-emerald-600"
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-slate-200 font-mono text-xs focus:outline-none focus:border-emerald-500"
                 >
                   <option value="">None (General / Tool-Assisted Chat)</option>
                   {recentScans.slice(0, 15).map((s) => (
@@ -901,9 +913,9 @@ export const AiSecuritySuite: React.FC<AiSecuritySuiteProps> = ({
                     type="checkbox"
                     checked={enableSecurityTools}
                     onChange={(e) => setEnableSecurityTools(e.target.checked)}
-                    className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                    className="rounded border-slate-700 bg-slate-950 text-emerald-500 focus:ring-emerald-500"
                   />
-                  <span className="text-slate-700 font-medium">
+                  <span className="text-slate-300 font-medium">
                     Auto-Run Live URL / IP / Message Scanners
                   </span>
                 </label>
@@ -913,17 +925,17 @@ export const AiSecuritySuite: React.FC<AiSecuritySuiteProps> = ({
                     type="checkbox"
                     checked={chatSearchGrounding}
                     onChange={(e) => setChatSearchGrounding(e.target.checked)}
-                    className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                    className="rounded border-slate-700 bg-slate-950 text-emerald-500 focus:ring-emerald-500"
                   />
-                  <span className="text-slate-700 font-medium">
+                  <span className="text-slate-300 font-medium">
                     Enable Google Search Grounding
                   </span>
                 </label>
               </div>
             </div>
 
-            <div className="pt-3 border-t border-slate-200 space-y-2">
-              <p className="text-xs font-semibold text-slate-700">
+            <div className="pt-3 border-t border-slate-800 space-y-2">
+              <p className="text-xs font-semibold text-slate-300">
                 Saved Conversations ({chatSessions.length})
               </p>
               {chatSessions.length === 0 ? (
@@ -931,17 +943,17 @@ export const AiSecuritySuite: React.FC<AiSecuritySuiteProps> = ({
                   Your multi-turn conversations are automatically saved to Firestore.
                 </p>
               ) : (
-                <div className="divide-y divide-slate-200 max-h-[240px] overflow-y-auto border border-slate-200 rounded-md">
+                <div className="divide-y divide-slate-800 max-h-[240px] overflow-y-auto border border-slate-800 rounded-lg">
                   {chatSessions.map((s) => (
                     <div
                       key={s.chatId}
                       onClick={() => handleSelectSavedChat(s)}
                       className={`p-3 cursor-pointer flex items-center justify-between gap-2 transition-colors ${
-                        activeChatId === s.chatId ? 'bg-emerald-50/70' : 'hover:bg-slate-50'
+                        activeChatId === s.chatId ? 'bg-emerald-950/40 text-emerald-300' : 'hover:bg-slate-900/60'
                       }`}
                     >
                       <div className="min-w-0">
-                        <p className="text-xs font-medium text-slate-900 truncate">{s.title}</p>
+                        <p className="text-xs font-medium text-slate-200 truncate">{s.title}</p>
                         <p className="text-[11px] font-mono text-slate-500 truncate">
                           {s.modelName} · {s.messages?.length || 0} msgs
                         </p>
@@ -953,7 +965,7 @@ export const AiSecuritySuite: React.FC<AiSecuritySuiteProps> = ({
                           deleteChatSession(s.chatId);
                           if (activeChatId === s.chatId) handleNewChat();
                         }}
-                        className="text-slate-400 hover:text-red-600 p-1 cursor-pointer"
+                        className="text-slate-500 hover:text-rose-400 p-1 cursor-pointer"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
@@ -965,33 +977,33 @@ export const AiSecuritySuite: React.FC<AiSecuritySuiteProps> = ({
           </div>
 
           {/* Right: Scrollable Multi-Turn Conversation Thread (8 cols) */}
-          <div className="lg:col-span-8 bg-white border border-slate-200 rounded-lg flex flex-col h-[620px]">
-            <div className="px-5 py-3.5 border-b border-slate-200 flex items-center justify-between">
-              <div className="flex items-center gap-2 text-xs text-slate-600">
-                <Sparkles className="w-4 h-4 text-emerald-600" />
-                <span className="font-semibold text-slate-900">{chatTitle}</span>
+          <div className="lg:col-span-8 bg-[#0b1325] border border-slate-800 rounded-xl flex flex-col h-[620px] overflow-hidden">
+            <div className="px-5 py-3.5 border-b border-slate-800 bg-[#070d19] flex items-center justify-between">
+              <div className="flex items-center gap-2 text-xs text-slate-300">
+                <Sparkles className="w-4 h-4 text-emerald-400" />
+                <span className="font-semibold text-white">{chatTitle}</span>
                 <span>·</span>
-                <span className="font-mono">{selectedModel}</span>
+                <span className="font-mono text-slate-400">{selectedModel}</span>
               </div>
-              <span className="text-xs text-slate-500 font-mono tabular-nums">
+              <span className="text-xs text-slate-400 font-mono tabular-nums">
                 {chatMessages.length} turns
               </span>
             </div>
 
             <div
               ref={chatScrollRef}
-              className="flex-1 p-5 overflow-y-auto space-y-4 bg-slate-50/50"
+              className="flex-1 p-5 overflow-y-auto space-y-4 bg-[#030712]"
             >
               {chatMessages.length === 0 ? (
                 <div className="h-full flex flex-col items-center justify-center text-center max-w-lg mx-auto space-y-4">
-                  <div className="w-10 h-10 rounded-full bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-700">
+                  <div className="w-10 h-10 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-emerald-400">
                     <Sparkles className="w-5 h-5" />
                   </div>
                   <div className="space-y-1">
-                    <p className="text-sm font-semibold text-slate-900">
+                    <p className="text-sm font-semibold text-white">
                       Gemini AI Security Assistant & Live Tool Copilot
                     </p>
-                    <p className="text-xs text-slate-600">
+                    <p className="text-xs text-slate-400">
                       Ask Gemini to execute live URL/Domain, Public IP, or Message phishing scans
                       automatically via Function Calling, or investigate DNS, RDAP, and incident
                       response playbooks.
@@ -1008,7 +1020,7 @@ export const AiSecuritySuite: React.FC<AiSecuritySuiteProps> = ({
                         key={q}
                         type="button"
                         onClick={() => handleSendChatMessage(undefined, q)}
-                        className="px-3 py-1.5 text-xs bg-white hover:bg-emerald-50 hover:border-emerald-300 text-slate-700 border border-slate-200 rounded-md cursor-pointer text-left transition-colors"
+                        className="px-3 py-1.5 text-xs bg-slate-900 hover:bg-slate-800 hover:border-emerald-500/50 text-slate-300 border border-slate-800 rounded-lg cursor-pointer text-left transition-colors"
                       >
                         {q}
                       </button>
@@ -1024,31 +1036,31 @@ export const AiSecuritySuite: React.FC<AiSecuritySuiteProps> = ({
                     }`}
                   >
                     <div
-                      className={`max-w-[88%] rounded-lg p-3.5 text-xs leading-relaxed whitespace-pre-wrap ${
+                      className={`max-w-[88%] rounded-xl p-3.5 text-xs leading-relaxed whitespace-pre-wrap ${
                         msg.role === 'user'
-                          ? 'bg-slate-900 text-white'
-                          : 'bg-white border border-slate-200 text-slate-800 shadow-2xs'
+                          ? 'bg-emerald-600 text-white rounded-tr-none'
+                          : 'bg-[#0b1325] border border-slate-800 text-slate-200 shadow-md rounded-tl-none'
                       }`}
                     >
                       {Array.isArray(msg.executedTools) && msg.executedTools.length > 0 && (
-                        <div className="mb-3 pb-2.5 border-b border-slate-200 space-y-2">
-                          <p className="text-[11px] font-mono font-semibold text-emerald-700">
+                        <div className="mb-3 pb-2.5 border-b border-slate-800 space-y-2">
+                          <p className="text-[11px] font-mono font-semibold text-emerald-400">
                             Executed Live Security Tool Telemetry:
                           </p>
                           {msg.executedTools.map((t, tIdx) => (
                             <div
                               key={tIdx}
-                              className="p-2.5 rounded bg-slate-50 border border-slate-200 font-mono text-[11px] space-y-1"
+                              className="p-2.5 rounded-lg bg-slate-900/80 border border-slate-800 font-mono text-[11px] space-y-1"
                             >
                               <div className="flex items-center justify-between gap-2">
-                                <span className="font-semibold text-slate-900">
+                                <span className="font-semibold text-white">
                                   {t.toolName} → {t.target}
                                 </span>
-                                <span className="text-emerald-700 font-semibold tabular-nums">
+                                <span className="text-emerald-400 font-semibold tabular-nums">
                                   {t.verdict} ({t.riskScore}/100)
                                 </span>
                               </div>
-                              <p className="text-slate-600">{t.summary}</p>
+                              <p className="text-slate-400">{t.summary}</p>
                             </div>
                           ))}
                         </div>
@@ -1057,15 +1069,15 @@ export const AiSecuritySuite: React.FC<AiSecuritySuiteProps> = ({
                       <div>{msg.text}</div>
 
                       {msg.role === 'model' && (
-                        <div className="mt-3 pt-2 border-t border-slate-100 flex items-center justify-between gap-2">
-                          <span className="text-[10px] font-mono text-slate-400">
+                        <div className="mt-3 pt-2 border-t border-slate-800 flex items-center justify-between gap-2">
+                          <span className="text-[10px] font-mono text-slate-500">
                             Gemini Security Assistant
                           </span>
                           <button
                             type="button"
                             disabled={ttsLoadingIdx === i}
                             onClick={() => handlePlayMessageTts(msg.text, i)}
-                            className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-600 hover:text-emerald-700 cursor-pointer"
+                            className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-400 hover:text-emerald-300 cursor-pointer"
                           >
                             <Volume2 className="w-3.5 h-3.5" />
                             <span>
@@ -1080,8 +1092,8 @@ export const AiSecuritySuite: React.FC<AiSecuritySuiteProps> = ({
                       )}
 
                       {Array.isArray(msg.sources) && msg.sources.length > 0 && (
-                        <div className="mt-3 pt-2.5 border-t border-slate-200 space-y-1">
-                          <p className="text-[11px] font-semibold text-slate-600">
+                        <div className="mt-3 pt-2.5 border-t border-slate-800 space-y-1">
+                          <p className="text-[11px] font-semibold text-slate-400">
                             Google Search Grounded Sources:
                           </p>
                           <div className="flex flex-wrap gap-2">
@@ -1091,7 +1103,7 @@ export const AiSecuritySuite: React.FC<AiSecuritySuiteProps> = ({
                                 href={src.uri}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="inline-flex items-center gap-1 text-[11px] text-emerald-700 hover:underline font-mono"
+                                className="inline-flex items-center gap-1 text-[11px] text-emerald-400 hover:underline font-mono"
                               >
                                 <span>{src.title}</span>
                                 <ExternalLink className="w-3 h-3" />
@@ -1106,8 +1118,8 @@ export const AiSecuritySuite: React.FC<AiSecuritySuiteProps> = ({
               )}
 
               {chatSending && (
-                <div className="text-xs text-slate-600 font-mono flex items-center gap-2">
-                  <RefreshCw className="w-3.5 h-3.5 animate-spin text-emerald-600" />
+                <div className="text-xs text-slate-400 font-mono flex items-center gap-2">
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin text-emerald-400" />
                   <span>
                     {selectedModel} is analyzing (running live security tools & grounding)...
                   </span>
@@ -1116,27 +1128,27 @@ export const AiSecuritySuite: React.FC<AiSecuritySuiteProps> = ({
             </div>
 
             {chatError && (
-              <div className="px-5 py-2.5 bg-red-50 border-t border-red-200 text-xs text-red-700 flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
+              <div className="px-5 py-2.5 bg-rose-950/80 border-t border-rose-800 text-xs text-rose-300 flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
                 <span>{chatError}</span>
               </div>
             )}
 
             <form
               onSubmit={(e) => handleSendChatMessage(e)}
-              className="p-4 border-t border-slate-200 bg-white flex items-center gap-3"
+              className="p-4 border-t border-slate-800 bg-[#070d19] flex items-center gap-3"
             >
               <input
                 type="text"
                 value={chatInput}
                 onChange={(e) => setChatInput(e.target.value)}
                 placeholder="Ask a follow-up question about threat indicators, DNS, or remediation..."
-                className="flex-1 px-3.5 py-2 text-sm bg-slate-50 border border-slate-300 rounded-md text-slate-900 placeholder-slate-400 focus:outline-none focus:border-emerald-600"
+                className="flex-1 px-3.5 py-2 text-sm bg-slate-950 border border-slate-800 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
               />
               <button
                 type="submit"
                 disabled={chatSending || !chatInput.trim()}
-                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-semibold rounded-md flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-semibold rounded-lg flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
               >
                 <Send className="w-3.5 h-3.5" />
                 <span>Send</span>
@@ -1149,14 +1161,17 @@ export const AiSecuritySuite: React.FC<AiSecuritySuiteProps> = ({
       {/* =================================================================== */}
       {/* TAB 2: REAL-TIME VOICE CONVERSATIONS (gemini-3.8-live)              */}
       {/* =================================================================== */}
+      {/* =================================================================== */}
+      {/* TAB 2: REAL-TIME VOICE CONVERSATIONS (gemini-3.8-live)              */}
+      {/* =================================================================== */}
       {activeTab === 'live-voice' && (
-        <div className="bg-white border border-slate-200 rounded-lg p-6 space-y-6">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 pb-4">
+        <div className="bg-[#0b1325] border border-slate-800 rounded-xl p-6 space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-4">
             <div className="space-y-1">
-              <h3 className="text-base font-bold text-slate-900 font-display">
+              <h3 className="text-base font-bold text-white font-display">
                 Real-Time Voice SOC Analyst (gemini-3.8-live)
               </h3>
-              <p className="text-xs text-slate-600">
+              <p className="text-xs text-slate-400">
                 Low-latency bidirectional voice conversation over WebSocket using 16kHz PCM mic
                 streaming and 24kHz gapless scheduled audio output.
               </p>
@@ -1168,7 +1183,7 @@ export const AiSecuritySuite: React.FC<AiSecuritySuiteProps> = ({
                   type="button"
                   disabled={liveConnecting}
                   onClick={startLiveSession}
-                  className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-semibold rounded-md flex items-center gap-2 cursor-pointer whitespace-nowrap"
+                  className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-semibold rounded-lg flex items-center gap-2 cursor-pointer whitespace-nowrap"
                 >
                   <Mic className="w-4 h-4" />
                   <span>
@@ -1179,7 +1194,7 @@ export const AiSecuritySuite: React.FC<AiSecuritySuiteProps> = ({
                 <button
                   type="button"
                   onClick={stopLiveSession}
-                  className="px-5 py-2.5 bg-red-600 hover:bg-red-700 text-white text-xs font-semibold rounded-md flex items-center gap-2 cursor-pointer whitespace-nowrap"
+                  className="px-5 py-2.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold rounded-lg flex items-center gap-2 cursor-pointer whitespace-nowrap"
                 >
                   <MicOff className="w-4 h-4" />
                   <span>End Live Voice Session</span>
@@ -1189,42 +1204,42 @@ export const AiSecuritySuite: React.FC<AiSecuritySuiteProps> = ({
           </div>
 
           {liveError && (
-            <div className="p-3.5 rounded-md bg-red-50 border border-red-200 text-xs text-red-700 flex items-center gap-2">
-              <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
+            <div className="p-3.5 rounded-lg bg-rose-950/80 border border-rose-800 text-xs text-rose-300 flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
               <span>{liveError}</span>
             </div>
           )}
 
-          <div className="p-6 rounded-lg bg-slate-50 border border-slate-200 flex flex-col items-center justify-center text-center space-y-3">
+          <div className="p-6 rounded-xl bg-slate-900/60 border border-slate-800 flex flex-col items-center justify-center text-center space-y-3">
             <div
               className={`w-14 h-14 rounded-full flex items-center justify-center border ${
                 liveConnected
-                  ? 'bg-emerald-50 border-emerald-300 text-emerald-600 animate-pulse'
-                  : 'bg-white border-slate-200 text-slate-400'
+                  ? 'bg-emerald-950/80 border-emerald-500 text-emerald-400 animate-pulse'
+                  : 'bg-slate-900 border-slate-800 text-slate-500'
               }`}
             >
               <Volume2 className="w-6 h-6" />
             </div>
-            <p className="text-sm font-semibold text-slate-900">
+            <p className="text-sm font-semibold text-white">
               {liveConnected
                 ? 'Live Voice Bridge Active — Speak naturally into your microphone'
                 : 'Click "Start Live Voice Session" to talk with the Live SOC Analyst'}
             </p>
-            <p className="text-xs text-slate-500 font-mono">
+            <p className="text-xs text-slate-400 font-mono">
               Model: gemini-3.8-live · Input: 16kHz PCM · Output: 24kHz PCM (Zephyr Voice)
             </p>
           </div>
 
           {liveTranscripts.length > 0 && (
             <div className="space-y-2">
-              <p className="text-xs font-semibold text-slate-700">Live Session Transcripts:</p>
-              <div className="p-4 bg-slate-50 border border-slate-200 rounded-md space-y-2 max-h-60 overflow-y-auto text-xs">
+              <p className="text-xs font-semibold text-slate-300">Live Session Transcripts:</p>
+              <div className="p-4 bg-slate-900/60 border border-slate-800 rounded-lg space-y-2 max-h-60 overflow-y-auto text-xs">
                 {liveTranscripts.map((item, idx) => (
                   <div key={idx} className="flex items-start gap-2">
-                    <span className="font-mono font-semibold text-slate-900 shrink-0">
+                    <span className="font-mono font-semibold text-white shrink-0">
                       {item.speaker}:
                     </span>
-                    <span className="text-slate-700">{item.text}</span>
+                    <span className="text-slate-300">{item.text}</span>
                   </div>
                 ))}
               </div>
@@ -1237,14 +1252,14 @@ export const AiSecuritySuite: React.FC<AiSecuritySuiteProps> = ({
       {/* TAB 3: AUDIO TRANSCRIPTION (gemini-3.5-transcribe)                  */}
       {/* =================================================================== */}
       {activeTab === 'transcribe' && (
-        <div className="bg-white border border-slate-200 rounded-lg p-6 space-y-6">
-          <div className="border-b border-slate-200 pb-4 space-y-1">
-            <h3 className="text-base font-bold text-slate-900 font-display">
+        <div className="bg-[#0b1325] border border-slate-800 rounded-xl p-6 space-y-6">
+          <div className="border-b border-slate-800 pb-4 space-y-1">
+            <h3 className="text-base font-bold text-white font-display">
               Vishing & Security Audio Transcription (gemini-3.5-transcribe)
             </h3>
-            <p className="text-xs text-slate-600">
+            <p className="text-xs text-slate-400">
               Record a voice note with your microphone or upload a suspicious voicemail/audio clip
-              to transcribe it with <code className="font-mono">gemini-3.5-transcribe</code>.
+              to transcribe it with <code className="font-mono text-emerald-400">gemini-3.5-transcribe</code>.
             </p>
           </div>
 
@@ -1254,7 +1269,7 @@ export const AiSecuritySuite: React.FC<AiSecuritySuiteProps> = ({
                 type="button"
                 disabled={transcribing}
                 onClick={handleStartAudioRecording}
-                className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-semibold rounded-md flex items-center gap-2 cursor-pointer whitespace-nowrap"
+                className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-semibold rounded-lg flex items-center gap-2 cursor-pointer whitespace-nowrap"
               >
                 <Mic className="w-4 h-4" />
                 <span>Record Microphone Audio</span>
@@ -1263,14 +1278,14 @@ export const AiSecuritySuite: React.FC<AiSecuritySuiteProps> = ({
               <button
                 type="button"
                 onClick={handleStopAudioRecording}
-                className="px-5 py-2.5 bg-red-600 hover:bg-red-700 text-white text-xs font-semibold rounded-md flex items-center gap-2 cursor-pointer whitespace-nowrap animate-pulse"
+                className="px-5 py-2.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold rounded-lg flex items-center gap-2 cursor-pointer whitespace-nowrap animate-pulse"
               >
                 <MicOff className="w-4 h-4" />
                 <span>Stop Recording & Transcribe</span>
               </button>
             )}
 
-            <label className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 text-xs font-medium rounded-md flex items-center gap-2 cursor-pointer whitespace-nowrap">
+            <label className="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 text-xs font-medium rounded-lg flex items-center gap-2 cursor-pointer whitespace-nowrap">
               <Upload className="w-4 h-4" />
               <span>Upload Audio File (.mp3 / .wav / .webm)</span>
               <input
@@ -1283,15 +1298,15 @@ export const AiSecuritySuite: React.FC<AiSecuritySuiteProps> = ({
           </div>
 
           {transcribing && (
-            <div className="p-4 rounded-md bg-slate-50 border border-slate-200 text-xs text-slate-700 font-mono flex items-center gap-2">
-              <RefreshCw className="w-4 h-4 animate-spin text-emerald-600" />
+            <div className="p-4 rounded-lg bg-slate-900/60 border border-slate-800 text-xs text-slate-300 font-mono flex items-center gap-2">
+              <RefreshCw className="w-4 h-4 animate-spin text-emerald-400" />
               <span>Transcribing audio via gemini-3.5-transcribe...</span>
             </div>
           )}
 
           {transcribeError && (
-            <div className="p-3.5 rounded-md bg-red-50 border border-red-200 text-xs text-red-700 flex items-center gap-2">
-              <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
+            <div className="p-3.5 rounded-lg bg-rose-950/80 border border-rose-800 text-xs text-rose-300 flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
               <span>{transcribeError}</span>
             </div>
           )}
@@ -1299,21 +1314,21 @@ export const AiSecuritySuite: React.FC<AiSecuritySuiteProps> = ({
           {transcriptResult && (
             <div className="space-y-3 pt-2">
               <div className="flex items-center justify-between">
-                <p className="text-xs font-semibold text-slate-800">
+                <p className="text-xs font-semibold text-slate-300">
                   Transcription Output (gemini-3.5-transcribe):
                 </p>
                 {onSendTranscriptToMessageScanner && (
                   <button
                     type="button"
                     onClick={() => onSendTranscriptToMessageScanner(transcriptResult)}
-                    className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-medium rounded flex items-center gap-1.5 cursor-pointer"
+                    className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white border border-slate-700 text-xs font-medium rounded-lg flex items-center gap-1.5 cursor-pointer"
                   >
                     <span>Inspect Transcript in Message Phishing Scanner</span>
-                    <ArrowRight className="w-3.5 h-3.5" />
+                    <ArrowRight className="w-3.5 h-3.5 text-emerald-400" />
                   </button>
                 )}
               </div>
-              <div className="p-4 bg-slate-50 border border-slate-200 rounded-md text-sm text-slate-900 leading-relaxed whitespace-pre-wrap">
+              <div className="p-4 bg-slate-900/60 border border-slate-800 rounded-lg text-sm text-slate-200 leading-relaxed whitespace-pre-wrap">
                 {transcriptResult}
               </div>
             </div>
@@ -1325,27 +1340,27 @@ export const AiSecuritySuite: React.FC<AiSecuritySuiteProps> = ({
       {/* TAB 4: GOOGLE SEARCH & GOOGLE MAPS GROUNDING                        */}
       {/* =================================================================== */}
       {activeTab === 'grounding' && (
-        <div className="bg-white border border-slate-200 rounded-lg p-6 space-y-6">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 pb-4">
+        <div className="bg-[#0b1325] border border-slate-800 rounded-xl p-6 space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-4">
             <div className="space-y-1">
-              <h3 className="text-base font-bold text-slate-900 font-display">
+              <h3 className="text-base font-bold text-white font-display">
                 Real-Time Google Search & Google Maps Grounding
               </h3>
-              <p className="text-xs text-slate-600">
-                Retrieve up-to-date threat advisories with <code className="font-mono">googleSearch</code>{' '}
+              <p className="text-xs text-slate-400">
+                Retrieve up-to-date threat advisories with <code className="font-mono text-emerald-400">googleSearch</code>{' '}
                 or locate physical CERT/SOC response facilities with{' '}
-                <code className="font-mono">googleMaps</code>.
+                <code className="font-mono text-emerald-400">googleMaps</code>.
               </p>
             </div>
 
-            <div className="flex items-center gap-1 p-1 bg-slate-100 border border-slate-200 rounded-md">
+            <div className="flex items-center gap-1 p-1 bg-slate-900 border border-slate-800 rounded-lg">
               <button
                 type="button"
                 onClick={() => setGroundingMode('search')}
-                className={`px-3 py-1.5 text-xs font-medium rounded flex items-center gap-1.5 cursor-pointer ${
+                className={`px-3 py-1.5 text-xs font-medium rounded-md flex items-center gap-1.5 cursor-pointer ${
                   groundingMode === 'search'
-                    ? 'bg-white text-slate-900 shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900'
+                    ? 'bg-emerald-600 text-white shadow-xs'
+                    : 'text-slate-400 hover:text-white'
                 }`}
               >
                 <Search className="w-3.5 h-3.5" />
@@ -1354,10 +1369,10 @@ export const AiSecuritySuite: React.FC<AiSecuritySuiteProps> = ({
               <button
                 type="button"
                 onClick={() => setGroundingMode('maps')}
-                className={`px-3 py-1.5 text-xs font-medium rounded flex items-center gap-1.5 cursor-pointer ${
+                className={`px-3 py-1.5 text-xs font-medium rounded-md flex items-center gap-1.5 cursor-pointer ${
                   groundingMode === 'maps'
-                    ? 'bg-white text-slate-900 shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900'
+                    ? 'bg-emerald-600 text-white shadow-xs'
+                    : 'text-slate-400 hover:text-white'
                 }`}
               >
                 <MapPin className="w-3.5 h-3.5" />
@@ -1374,19 +1389,19 @@ export const AiSecuritySuite: React.FC<AiSecuritySuiteProps> = ({
                   value={groundingLat}
                   onChange={(e) => setGroundingLat(e.target.value)}
                   placeholder="Latitude (optional, e.g. 37.78193)"
-                  className="px-3 py-2 text-xs font-mono bg-slate-50 border border-slate-300 rounded-md text-slate-900"
+                  className="px-3 py-2 text-xs font-mono bg-slate-950 border border-slate-800 rounded-lg text-white"
                 />
                 <input
                   type="text"
                   value={groundingLng}
                   onChange={(e) => setGroundingLng(e.target.value)}
                   placeholder="Longitude (optional, e.g. -122.40476)"
-                  className="px-3 py-2 text-xs font-mono bg-slate-50 border border-slate-300 rounded-md text-slate-900"
+                  className="px-3 py-2 text-xs font-mono bg-slate-950 border border-slate-800 rounded-lg text-white"
                 />
                 <button
                   type="button"
                   onClick={handleUseBrowserGeolocation}
-                  className="px-3 py-2 text-xs font-medium bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 rounded-md cursor-pointer"
+                  className="px-3 py-2 text-xs font-medium bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 rounded-lg cursor-pointer"
                 >
                   Use My Current Location
                 </button>
@@ -1404,12 +1419,12 @@ export const AiSecuritySuite: React.FC<AiSecuritySuiteProps> = ({
                     ? 'Search live CVEs, recent phishing campaigns, or CISA advisories...'
                     : 'Locate cybersecurity incident response offices, data centers, or law enforcement offices...'
                 }
-                className="flex-1 px-3.5 py-2.5 text-sm bg-slate-50 border border-slate-300 rounded-md text-slate-900 placeholder-slate-400 focus:outline-none focus:border-emerald-600"
+                className="flex-1 px-3.5 py-2.5 text-sm bg-slate-950 border border-slate-800 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
               />
               <button
                 type="submit"
                 disabled={groundingLoading}
-                className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-semibold rounded-md cursor-pointer whitespace-nowrap"
+                className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-semibold rounded-lg cursor-pointer whitespace-nowrap"
               >
                 {groundingLoading
                   ? 'Querying Grounding Engine...'
@@ -1420,7 +1435,7 @@ export const AiSecuritySuite: React.FC<AiSecuritySuiteProps> = ({
             </div>
 
             <div className="flex flex-wrap items-center gap-2 text-xs">
-              <span className="text-slate-500">Quick Queries:</span>
+              <span className="text-slate-400">Quick Queries:</span>
               {groundingMode === 'search'
                 ? [
                     'Latest CISA phishing and credential harvesting advisories',
@@ -1430,7 +1445,7 @@ export const AiSecuritySuite: React.FC<AiSecuritySuiteProps> = ({
                       key={preset}
                       type="button"
                       onClick={() => handleRunGrounding(undefined, preset)}
-                      className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 rounded text-[11px] cursor-pointer"
+                      className="px-2.5 py-1 bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 rounded-md text-[11px] cursor-pointer"
                     >
                       {preset}
                     </button>
@@ -1443,7 +1458,7 @@ export const AiSecuritySuite: React.FC<AiSecuritySuiteProps> = ({
                       key={preset}
                       type="button"
                       onClick={() => handleRunGrounding(undefined, preset)}
-                      className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 rounded text-[11px] cursor-pointer"
+                      className="px-2.5 py-1 bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 rounded-md text-[11px] cursor-pointer"
                     >
                       {preset}
                     </button>
@@ -1452,20 +1467,20 @@ export const AiSecuritySuite: React.FC<AiSecuritySuiteProps> = ({
           </form>
 
           {groundingError && (
-            <div className="p-3.5 rounded-md bg-red-50 border border-red-200 text-xs text-red-700">
+            <div className="p-3.5 rounded-lg bg-rose-950/80 border border-rose-800 text-xs text-rose-300">
               {groundingError}
             </div>
           )}
 
           {groundingMode === 'search' && searchResult && (
-            <div className="p-5 bg-slate-50 border border-slate-200 rounded-lg space-y-4">
-              <div className="text-sm text-slate-800 leading-relaxed whitespace-pre-wrap">
+            <div className="p-5 bg-slate-900/60 border border-slate-800 rounded-xl space-y-4">
+              <div className="text-sm text-slate-200 leading-relaxed whitespace-pre-wrap">
                 {searchResult.text}
               </div>
 
               {searchResult.sources.length > 0 && (
-                <div className="pt-3 border-t border-slate-200 space-y-2">
-                  <p className="text-xs font-semibold text-slate-900">
+                <div className="pt-3 border-t border-slate-800 space-y-2">
+                  <p className="text-xs font-semibold text-white">
                     Verified Web Grounding Citations ({searchResult.sources.length}):
                   </p>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -1475,7 +1490,7 @@ export const AiSecuritySuite: React.FC<AiSecuritySuiteProps> = ({
                         href={src.uri}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="p-2.5 bg-white border border-slate-200 rounded hover:border-emerald-600 transition-colors flex items-center justify-between gap-2 text-xs text-emerald-700 font-medium"
+                        className="p-2.5 bg-slate-950/80 border border-slate-800 rounded-lg hover:border-emerald-500 transition-colors flex items-center justify-between gap-2 text-xs text-emerald-400 font-medium"
                       >
                         <span className="truncate">{src.title}</span>
                         <ExternalLink className="w-3.5 h-3.5 shrink-0" />
@@ -1488,34 +1503,34 @@ export const AiSecuritySuite: React.FC<AiSecuritySuiteProps> = ({
           )}
 
           {groundingMode === 'maps' && mapsResult && (
-            <div className="p-5 bg-slate-50 border border-slate-200 rounded-lg space-y-4">
-              <div className="text-sm text-slate-800 leading-relaxed whitespace-pre-wrap">
+            <div className="p-5 bg-slate-900/60 border border-slate-800 rounded-xl space-y-4">
+              <div className="text-sm text-slate-200 leading-relaxed whitespace-pre-wrap">
                 {mapsResult.text}
               </div>
 
               {mapsResult.places.length > 0 && (
-                <div className="pt-3 border-t border-slate-200 space-y-3">
-                  <p className="text-xs font-semibold text-slate-900">
+                <div className="pt-3 border-t border-slate-800 space-y-3">
+                  <p className="text-xs font-semibold text-white">
                     Google Maps Grounded Locations ({mapsResult.places.length}):
                   </p>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     {mapsResult.places.map((pl, i) => (
                       <div
                         key={i}
-                        className="p-3 bg-white border border-slate-200 rounded-md space-y-2"
+                        className="p-3 bg-slate-950/80 border border-slate-800 rounded-lg space-y-2"
                       >
                         <a
                           href={pl.uri}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700 hover:underline"
+                          className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-400 hover:underline"
                         >
                           <MapPin className="w-3.5 h-3.5 shrink-0" />
                           <span>{pl.title}</span>
                           <ExternalLink className="w-3 h-3 shrink-0" />
                         </a>
                         {pl.reviewSnippets.length > 0 && (
-                          <div className="space-y-1 text-[11px] text-slate-600">
+                          <div className="space-y-1 text-[11px] text-slate-400">
                             {pl.reviewSnippets.map((snip, sIdx) => (
                               <p key={sIdx} className="italic">
                                 “{snip}”
@@ -1539,24 +1554,24 @@ export const AiSecuritySuite: React.FC<AiSecuritySuiteProps> = ({
       {activeTab === 'media-studio' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           {/* Left: Create & Edit Images (6 cols) */}
-          <div className="lg:col-span-6 bg-white border border-slate-200 rounded-lg p-6 space-y-5">
-            <div className="border-b border-slate-200 pb-3 space-y-1">
+          <div className="lg:col-span-6 bg-[#0b1325] border border-slate-800 rounded-xl p-6 space-y-5">
+            <div className="border-b border-slate-800 pb-3 space-y-1">
               <div className="flex items-center gap-2">
-                <ImageIcon className="w-4 h-4 text-emerald-600" />
-                <h3 className="text-base font-bold text-slate-900 font-display">
+                <ImageIcon className="w-4 h-4 text-emerald-400" />
+                <h3 className="text-base font-bold text-white font-display">
                   Create & Edit Security Visuals
                 </h3>
               </div>
-              <p className="text-xs text-slate-600">
+              <p className="text-xs text-slate-400">
                 Generate or edit threat topology visuals using{' '}
-                <code className="font-mono">gemini-3.1-flash-lite-image</code> or{' '}
-                <code className="font-mono">gemini-3.1-flash-image</code>.
+                <code className="font-mono text-emerald-400">gemini-3.1-flash-lite-image</code> or{' '}
+                <code className="font-mono text-emerald-400">gemini-3.1-flash-image</code>.
               </p>
             </div>
 
             <form onSubmit={handleGenerateOrEditImage} className="space-y-4 text-xs">
               <div className="space-y-1.5">
-                <label className="block font-medium text-slate-700">
+                <label className="block font-medium text-slate-300">
                   Image Generation or Editing Prompt
                 </label>
                 <textarea
@@ -1564,18 +1579,18 @@ export const AiSecuritySuite: React.FC<AiSecuritySuiteProps> = ({
                   required
                   value={imagePrompt}
                   onChange={(e) => setImagePrompt(e.target.value)}
-                  placeholder="e.g., Clean technical diagram of zero-trust email authentication with SPF, DKIM, and DMARC shields on a white studio background"
-                  className="w-full p-3 text-xs bg-slate-50 border border-slate-300 rounded-md text-slate-900"
+                  placeholder="e.g., Clean technical diagram of zero-trust email authentication with SPF, DKIM, and DMARC shields on a dark cybersecurity SOC canvas"
+                  className="w-full p-3 text-xs bg-slate-950 border border-slate-800 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
-                  <label className="block font-medium text-slate-700">Aspect Ratio</label>
+                  <label className="block font-medium text-slate-300">Aspect Ratio</label>
                   <select
                     value={imageAspectRatio}
                     onChange={(e) => setImageAspectRatio(e.target.value as any)}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-md text-slate-900 font-mono"
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-white font-mono"
                   >
                     <option value="16:9">16:9 (Landscape)</option>
                     <option value="1:1">1:1 (Square)</option>
@@ -1586,8 +1601,8 @@ export const AiSecuritySuite: React.FC<AiSecuritySuiteProps> = ({
                 </div>
 
                 <div className="space-y-1">
-                  <label className="block font-medium text-slate-700">Reference Image (Edit)</label>
-                  <label className="w-full px-3 py-2 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded-md text-slate-700 flex items-center justify-center gap-1.5 cursor-pointer">
+                  <label className="block font-medium text-slate-300">Reference Image (Edit)</label>
+                  <label className="w-full px-3 py-2 bg-slate-900 hover:bg-slate-800 border border-slate-700 rounded-lg text-slate-300 flex items-center justify-center gap-1.5 cursor-pointer">
                     <Upload className="w-3.5 h-3.5" />
                     <span className="truncate">
                       {uploadedEditImage ? 'Image Attached (Click to change)' : 'Upload to Edit'}
@@ -1608,9 +1623,9 @@ export const AiSecuritySuite: React.FC<AiSecuritySuiteProps> = ({
                     type="checkbox"
                     checked={imageHighQuality}
                     onChange={(e) => setImageHighQuality(e.target.checked)}
-                    className="rounded border-slate-300 text-emerald-600"
+                    className="rounded border-slate-700 bg-slate-950 text-emerald-500"
                   />
-                  <span className="text-slate-700">
+                  <span className="text-slate-300">
                     Use gemini-3.1-flash-image (1K High-Quality)
                   </span>
                 </label>
@@ -1619,7 +1634,7 @@ export const AiSecuritySuite: React.FC<AiSecuritySuiteProps> = ({
                   <button
                     type="button"
                     onClick={() => setUploadedEditImage(null)}
-                    className="text-red-600 hover:underline cursor-pointer"
+                    className="text-rose-400 hover:underline cursor-pointer"
                   >
                     Clear Edit Image
                   </button>
@@ -1629,7 +1644,7 @@ export const AiSecuritySuite: React.FC<AiSecuritySuiteProps> = ({
               <button
                 type="submit"
                 disabled={imageLoading}
-                className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-semibold rounded-md cursor-pointer"
+                className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-semibold rounded-lg cursor-pointer"
               >
                 {imageLoading
                   ? 'Rendering Image...'
@@ -1640,20 +1655,20 @@ export const AiSecuritySuite: React.FC<AiSecuritySuiteProps> = ({
             </form>
 
             {imageError && (
-              <div className="p-3 rounded bg-red-50 border border-red-200 text-xs text-red-700">
+              <div className="p-3 rounded-lg bg-rose-950/80 border border-rose-800 text-xs text-rose-300">
                 {imageError}
               </div>
             )}
 
             {generatedImage && (
-              <div className="space-y-2 pt-2 border-t border-slate-200">
+              <div className="space-y-2 pt-2 border-t border-slate-800">
                 <img
                   src={generatedImage.imageUrl}
                   alt="Generated cybersecurity asset"
                   referrerPolicy="no-referrer"
-                  className="w-full rounded-md border border-slate-200"
+                  className="w-full rounded-lg border border-slate-800"
                 />
-                <div className="flex items-center justify-between text-[11px] text-slate-500 font-mono">
+                <div className="flex items-center justify-between text-[11px] text-slate-400 font-mono">
                   <span>Model: {generatedImage.modelUsed}</span>
                   <button
                     type="button"
@@ -1663,7 +1678,7 @@ export const AiSecuritySuite: React.FC<AiSecuritySuiteProps> = ({
                         mimeType: 'image/png',
                       })
                     }
-                    className="text-emerald-700 hover:underline cursor-pointer"
+                    className="text-emerald-400 hover:underline cursor-pointer"
                   >
                     Use this image for further editing
                   </button>
@@ -1673,46 +1688,46 @@ export const AiSecuritySuite: React.FC<AiSecuritySuiteProps> = ({
           </div>
 
           {/* Right: Veo 3 Video Generation (6 cols) */}
-          <div className="lg:col-span-6 bg-white border border-slate-200 rounded-lg p-6 space-y-5">
-            <div className="border-b border-slate-200 pb-3 space-y-1">
+          <div className="lg:col-span-6 bg-[#0b1325] border border-slate-800 rounded-xl p-6 space-y-5">
+            <div className="border-b border-slate-800 pb-3 space-y-1">
               <div className="flex items-center gap-2">
-                <Video className="w-4 h-4 text-emerald-600" />
-                <h3 className="text-base font-bold text-slate-900 font-display">
+                <Video className="w-4 h-4 text-emerald-400" />
+                <h3 className="text-base font-bold text-white font-display">
                   Veo 3 Security Briefing Video Generator
                 </h3>
               </div>
-              <p className="text-xs text-slate-600">
-                Generate 720p landscape (<code className="font-mono">16:9</code>) or portrait (
-                <code className="font-mono">9:16</code>) videos using{' '}
-                <code className="font-mono">veo-3.1-lite-generate-preview</code>.
+              <p className="text-xs text-slate-400">
+                Generate 720p landscape (<code className="font-mono text-emerald-400">16:9</code>) or portrait (
+                <code className="font-mono text-emerald-400">9:16</code>) videos using{' '}
+                <code className="font-mono text-emerald-400">veo-3.1-lite-generate-preview</code>.
               </p>
             </div>
 
             <form onSubmit={handleGenerateVeoVideo} className="space-y-4 text-xs">
               <div className="space-y-1.5">
-                <label className="block font-medium text-slate-700">Video Prompt</label>
+                <label className="block font-medium text-slate-300">Video Prompt</label>
                 <textarea
                   rows={3}
                   required
                   value={videoPrompt}
                   onChange={(e) => setVideoPrompt(e.target.value)}
-                  placeholder="e.g., Cinematic visualization of an optical firewall intercepting malicious phishing packets in a modern white security operations center"
-                  className="w-full p-3 text-xs bg-slate-50 border border-slate-300 rounded-md text-slate-900"
+                  placeholder="e.g., Cinematic visualization of an optical firewall intercepting malicious phishing packets in a modern cybersecurity operations center"
+                  className="w-full p-3 text-xs bg-slate-950 border border-slate-800 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
                 />
               </div>
 
               <div className="space-y-1">
-                <label className="block font-medium text-slate-700">Video Aspect Ratio</label>
+                <label className="block font-medium text-slate-300">Video Aspect Ratio</label>
                 <div className="grid grid-cols-2 gap-3">
                   {(['16:9', '9:16'] as const).map((ratio) => (
                     <button
                       key={ratio}
                       type="button"
                       onClick={() => setVideoAspectRatio(ratio)}
-                      className={`py-2 px-3 rounded-md border font-mono text-xs cursor-pointer ${
+                      className={`py-2 px-3 rounded-lg border font-mono text-xs cursor-pointer ${
                         videoAspectRatio === ratio
-                          ? 'bg-slate-900 text-white border-slate-900'
-                          : 'bg-slate-50 text-slate-700 border-slate-300 hover:bg-slate-100'
+                          ? 'bg-emerald-600 text-white border-emerald-500'
+                          : 'bg-slate-950 text-slate-300 border-slate-800 hover:bg-slate-900'
                       }`}
                     >
                       {ratio === '16:9' ? '16:9 Landscape' : '9:16 Portrait'}
@@ -1724,31 +1739,31 @@ export const AiSecuritySuite: React.FC<AiSecuritySuiteProps> = ({
               <button
                 type="submit"
                 disabled={videoLoading}
-                className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-semibold rounded-md cursor-pointer"
+                className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-semibold rounded-lg cursor-pointer"
               >
                 {videoLoading ? 'Generating Video with Veo 3...' : 'Generate Veo 3 Video'}
               </button>
             </form>
 
             {videoStatusMsg && (
-              <div className="p-3.5 rounded bg-slate-50 border border-slate-200 text-xs text-slate-700 font-mono flex items-center gap-2">
-                <RefreshCw className="w-4 h-4 animate-spin text-emerald-600 shrink-0" />
+              <div className="p-3.5 rounded-lg bg-slate-900/60 border border-slate-800 text-xs text-slate-300 font-mono flex items-center gap-2">
+                <RefreshCw className="w-4 h-4 animate-spin text-emerald-400 shrink-0" />
                 <span>{videoStatusMsg}</span>
               </div>
             )}
 
             {videoError && (
-              <div className="p-3 rounded bg-red-50 border border-red-200 text-xs text-red-700">
+              <div className="p-3 rounded-lg bg-rose-950/80 border border-rose-800 text-xs text-rose-300">
                 {videoError}
               </div>
             )}
 
             {generatedVideoUrl && (
-              <div className="space-y-2 pt-2 border-t border-slate-200">
+              <div className="space-y-2 pt-2 border-t border-slate-800">
                 <video
                   src={generatedVideoUrl}
                   controls
-                  className="w-full rounded-md border border-slate-200 bg-black"
+                  className="w-full rounded-lg border border-slate-800 bg-black"
                 />
                 <p className="text-[11px] font-mono text-slate-500">
                   Rendered via veo-3.1-lite-generate-preview ({videoAspectRatio})

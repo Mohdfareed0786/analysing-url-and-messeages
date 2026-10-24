@@ -96,7 +96,8 @@ export interface MessageAnalysisResult {
 export async function analyzeMessageContent(
   rawMessage: string,
   senderAddress?: string,
-  rawHeaders?: string
+  rawHeaders?: string,
+  options?: { skipAiExplanation?: boolean }
 ): Promise<MessageAnalysisResult> {
   const text = rawMessage.trim();
   if (!text) {
@@ -345,12 +346,14 @@ export async function analyzeMessageContent(
           ? 'Benign / Informational Communication'
           : 'Suspicious Social Engineering Attempt';
 
-  const aiExplanation = await generateSecurityExplanation(
-    'message',
-    text.slice(0, 300),
-    riskScore,
-    verdict,
-    {
+  const aiExplanation = options?.skipAiExplanation
+    ? undefined
+    : await generateSecurityExplanation(
+        'message',
+        text.slice(0, 300),
+        riskScore,
+        verdict,
+        {
       senderInput: senderAddress || 'Not Provided',
       wordCount: words.length,
       extractedUrls: urls,

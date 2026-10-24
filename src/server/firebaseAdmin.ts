@@ -29,7 +29,11 @@ export async function requireAuth(
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     res.status(401).json({
-      error: 'Authentication required. Missing Bearer token in Authorization header.',
+      success: false,
+      error: {
+        code: 'UNAUTHORIZED',
+        message: 'Authentication required. Missing Bearer token in Authorization header.',
+      },
     });
     return;
   }
@@ -37,7 +41,11 @@ export async function requireAuth(
   const idToken = authHeader.slice('Bearer '.length).trim();
   if (!idToken) {
     res.status(401).json({
-      error: 'Authentication required. Empty Bearer token.',
+      success: false,
+      error: {
+        code: 'EMPTY_TOKEN',
+        message: 'Authentication required. Empty Bearer token.',
+      },
     });
     return;
   }
@@ -49,7 +57,11 @@ export async function requireAuth(
   } catch (err) {
     console.error('Firebase token verification error:', err);
     res.status(401).json({
-      error: 'Invalid or expired authentication session. Please sign in again.',
+      success: false,
+      error: {
+        code: 'INVALID_TOKEN',
+        message: 'Invalid or expired authentication session. Please sign in again.',
+      },
     });
   }
 }

@@ -1,10 +1,10 @@
-import sharp from 'sharp';
+import sharp, { type Metadata as SharpMetadata } from 'sharp';
 import jsQR from 'jsqr';
 import exifr from 'exifr';
 import { Type } from '@google/genai';
 import { analyzeUrlTarget } from './urlAnalyzer.ts';
-import { EvidenceIndicator, ExternalFeedStatus } from './ipAnalyzer.ts';
-import { getGenAIClient, formatGeminiErrorMessage, AIExplanationResult } from './geminiService.ts';
+import type { EvidenceIndicator, ExternalFeedStatus } from './ipAnalyzer.ts';
+import { getGenAIClient, formatGeminiErrorMessage, type AIExplanationResult } from './geminiService.ts';
 
 export type ScreenshotRiskClassification =
   | 'LOW RISK'
@@ -869,7 +869,7 @@ export async function analyzeScreenshotImage(params: {
   const { buffer, originalName, mimeType } = params;
 
   // 1. Validate binary image format and dimensions using sharp
-  let sharpMeta: sharp.Metadata;
+  let sharpMeta: SharpMetadata;
   try {
     sharpMeta = await sharp(buffer).metadata();
   } catch {
